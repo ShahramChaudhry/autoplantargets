@@ -1,115 +1,170 @@
 import { Header } from "@/components/layout/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { PeriodSelector } from "@/components/period-selector";
+import { PlanContextBanner } from "@/components/plan/plan-context-banner";
+import { InlineUnitsEditor } from "@/components/allocations/inline-units-editor";
+import { DeleteAllocationButton } from "@/components/allocations/delete-allocation-button";
 import { AddAllocationForm } from "@/components/add-allocation-form";
-import { AllocationEditor } from "@/components/allocation-editor";
-import { WorkflowActions } from "@/components/workflow-actions";
+import { RetailAllocationProgress } from "@/components/allocations/retail-allocation-progress";
+import { RetailAllocationLockBanner } from "@/components/allocations/retail-allocation-lock-banner";
+import { RetailAllocationCompletion } from "@/components/allocations/retail-allocation-completion";
+import { CompleteRetailAllocationAction } from "@/components/workflow/complete-retail-allocation-action";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentUser } from "@/lib/auth";
-import { getPlanningPeriods, getActivePeriod } from "@/lib/data";
+import { requirePageAccess } from "@/lib/auth";
+import { getActivePlan } from "@/lib/data";
+import {
+  getRetailAllocationProgress,
+  isRetailAllocationCompleteStatus,
+  isRetailAllocationEditable,
+} from "@/lib/retail-allocation";
 import { SALES_OFFICES } from "@/lib/constants";
-import { Suspense } from "react";
+import { planLabel } from "@/lib/plans";
 
 export default async function RetailAllocationsPage({ searchParams }) {
-  const user = await getCurrentUser();
+  const user = await requirePageAccess("/retail-allocations");
   const params = await searchParams;
-  const periods = await getPlanningPeriods();
-  const period = await getActivePeriod(params?.period);
+  const plan = await getActivePlan(params?.plan);
   const supabase = await createClient();
 
-  const { data: offices } = period
+  const { data: offices } = plan
     ? await supabase
         .from("sales_office_allocations")
         .select("*")
-        .eq("planning_period_id", period.id)
+        .eq("planning_period_id", plan.id)
         .order("sales_office")
     : { data: [] };
 
-  const { data: retailTargets } = period
+  const { data: retailTargets } = plan
     ? await supabase
         .from("targets")
         .select("target_units")
-        .eq("planning_period_id", period.id)
+        .eq("planning_period_id", plan.id)
         .eq("sales_group", "Retail")
     : { data: [] };
 
-  const retailTotal = (retailTargets || []).reduce((s, t) => s + t.target_units, 0);
-  const officeTotal = (offices || []).reduce((s, o) => s + o.units, 0);
+  const retailTotal = (retailTargets || []).reduce((sum, target) => sum + target.target_units, 0);
+  const officeTotal = (offices || []).reduce((sum, office) => sum + office.units, 0);
+  const progress = getRetailAllocationProgress(retailTotal, officeTotal);
+  const isEditable = plan ? isRetailAllocationEditable(plan.status) : false;
+  const isComplete = plan ? isRetailAllocationCompleteStatus(plan.status) : false;
+
+  const { data: completionLog } =
+    plan && isComplete
+      ? await supabase
+          .from("audit_logs")
+          .select("created_at, users(name, role)")
+          .eq("planning_period_id", plan.id)
+          .eq("action", "complete_retail_allocation")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      : { data: null };
 
   return (
     <>
       <Header
         title="Sales Office Allocation"
-        description="Step 9: Allocate Retail targets to Sales Offices"
+        description="Distribute retail targets across sales offices"
       />
 
-      {periods.length > 0 && (
-        <div className="mb-6">
-          <Suspense fallback={null}>
-            <PeriodSelector periods={periods} currentId={period?.id} />
-          </Suspense>
-        </div>
-      )}
+      {plan && <PlanContextBanner plan={plan} basePath="/retail-allocations" />}
 
-      {period && (
-        <>
-          <div className="mb-4 flex gap-4 text-sm">
-            <span className="rounded-lg bg-blue-50 px-3 py-1 text-blue-800">
-              Retail Target: {retailTotal} units
-            </span>
-            <span className={`rounded-lg px-3 py-1 ${officeTotal === retailTotal ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
-              Allocated: {officeTotal} units
-            </span>
-          </div>
-
-          <AddAllocationForm
-            type="offices"
-            periodId={period.id}
-            options={{ offices: SALES_OFFICES }}
-            fields={[
-              { name: "planning_period_id", default: period.id },
-              { name: "sales_office", label: "Sales Office", type: "select", optionsKey: "offices" },
-              { name: "units", label: "Units", type: "number" },
-            ]}
+      {plan && (
+        <div className="space-y-6">
+          <RetailAllocationProgress
+            retailTarget={retailTotal}
+            allocated={officeTotal}
+            isComplete={isComplete}
           />
 
-          <WorkflowActions periodId={period.id} status={period.status} role={user.role} />
+          {isComplete && (
+            <>
+              <RetailAllocationCompletion
+                completedBy={completionLog?.users?.name || user.name}
+                completedByRole={completionLog?.users?.role || user.role}
+                completedAt={completionLog?.created_at}
+              />
+              <RetailAllocationLockBanner />
+            </>
+          )}
 
-          <Card className="mt-6">
+          {isEditable && (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Add office allocation</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <AddAllocationForm
+                    type="offices"
+                    periodId={plan.id}
+                    options={{ offices: SALES_OFFICES }}
+                    fields={[
+                      {
+                        label: "Monthly Target Plan",
+                        type: "display",
+                        value: planLabel(plan.month, plan.year),
+                      },
+                      {
+                        name: "sales_office",
+                        label: "Sales Office",
+                        type: "select",
+                        optionsKey: "offices",
+                      },
+                      { name: "units", label: "Units", type: "number" },
+                    ]}
+                  />
+                </CardContent>
+              </Card>
+
+              <CompleteRetailAllocationAction
+                periodId={plan.id}
+                planName={planLabel(plan.month, plan.year)}
+                retailTarget={retailTotal}
+                allocated={officeTotal}
+                status={plan.status}
+                canComplete={progress.isFullyAllocated}
+              />
+            </>
+          )}
+
+          <Card>
             <CardHeader>
-              <CardTitle>Sales Office Allocations</CardTitle>
+              <CardTitle>Sales office allocations</CardTitle>
             </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Sales Office</TableHead>
-                    <TableHead>Units</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(offices || []).map((o) => (
-                    <TableRow key={o.id}>
-                      <TableCell className="font-medium">{o.sales_office}</TableCell>
-                      <TableCell>{o.units}</TableCell>
-                      <TableCell>
-                        <AllocationEditor
+            <CardContent className="space-y-2">
+              {(offices || []).length === 0 ? (
+                <p className="text-sm text-slate-500">No sales office allocations yet.</p>
+              ) : (
+                (offices || []).map((office) => (
+                  <div
+                    key={office.id}
+                    className="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-3"
+                  >
+                    <p className="font-medium text-slate-900">{office.sales_office}</p>
+                    <div className="flex items-center gap-2">
+                      <InlineUnitsEditor
+                        type="offices"
+                        recordId={office.id}
+                        field="units"
+                        value={office.units}
+                        periodId={plan.id}
+                        disabled={!isEditable}
+                      />
+                      {isEditable && (
+                        <DeleteAllocationButton
                           type="offices"
-                          id={o.id}
-                          field="units"
-                          value={o.units}
-                          periodId={period.id}
+                          id={office.id}
+                          periodId={plan.id}
+                          label={`Delete ${office.sales_office} allocation`}
                         />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
             </CardContent>
           </Card>
-        </>
+        </div>
       )}
     </>
   );

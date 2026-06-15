@@ -34,6 +34,7 @@ npm install
 2. Go to **SQL Editor** and run:
    - `supabase/schema.sql` (creates tables, RLS, triggers)
    - `supabase/seed.sql` (creates users, sample data, in-progress cycle)
+   - If login fails with "Database error querying schema", also run `supabase/fix-auth-users.sql`
 3. Enable **Email** auth provider in Authentication → Providers
 4. Copy your project URL and anon key from Settings → API
 
@@ -46,7 +47,8 @@ cp .env.local.example .env.local
 Edit `.env.local`:
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+# Project URL only — do NOT append /rest/v1/
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 NEXT_PUBLIC_DEV_MODE=true
 ```

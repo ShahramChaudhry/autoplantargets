@@ -1,79 +1,37 @@
 import { Header } from "@/components/layout/header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { PeriodSelector } from "@/components/period-selector";
-import { Badge } from "@/components/ui/badge";
+import { PlanContextBanner } from "@/components/plan/plan-context-banner";
+import { AuditTimeline } from "@/components/audit/audit-timeline";
 import { createClient } from "@/lib/supabase/server";
-import { getPlanningPeriods, getActivePeriod } from "@/lib/data";
-import { formatDate } from "@/lib/utils";
-import { Suspense } from "react";
+import { requirePageAccess } from "@/lib/auth";
+import { formatAuditEntry } from "@/lib/audit";
+import { getActivePlan } from "@/lib/data";
 
 export default async function AuditPage({ searchParams }) {
+  await requirePageAccess("/audit");
   const params = await searchParams;
-  const periods = await getPlanningPeriods();
-  const period = await getActivePeriod(params?.period);
+  const plan = await getActivePlan(params?.plan);
   const supabase = await createClient();
 
-  const { data: logs } = period
+  const { data: logs } = plan
     ? await supabase
         .from("audit_logs")
         .select("*, users(name, role)")
-        .eq("planning_period_id", period.id)
+        .eq("planning_period_id", plan.id)
         .order("created_at", { ascending: false })
     : { data: [] };
+
+  const entries = (logs || []).map((log) => formatAuditEntry(log, plan));
 
   return (
     <>
       <Header
         title="Audit History"
-        description="Complete trail of actions across the planning workflow"
+        description="Business activity trail for the selected monthly target plan"
       />
 
-      {periods.length > 0 && (
-        <div className="mb-6">
-          <Suspense fallback={null}>
-            <PeriodSelector periods={periods} currentId={period?.id} />
-          </Suspense>
-        </div>
-      )}
+      {plan && <PlanContextBanner plan={plan} basePath="/audit" />}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Activity Log ({(logs || []).length} entries)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Timestamp</TableHead>
-                <TableHead>User</TableHead>
-                <TableHead>Action</TableHead>
-                <TableHead>Entity</TableHead>
-                <TableHead>Details</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(logs || []).map((log) => (
-                <TableRow key={log.id}>
-                  <TableCell className="whitespace-nowrap text-xs text-slate-500">
-                    {formatDate(log.created_at)}
-                  </TableCell>
-                  <TableCell className="font-medium">{log.users?.name || "System"}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{log.action}</Badge>
-                  </TableCell>
-                  <TableCell className="text-sm">{log.entity_type}</TableCell>
-                  <TableCell className="max-w-xs truncate text-xs text-slate-500">
-                    {log.details?.comment ||
-                      (log.details?.to && `→ ${log.details.to}`) ||
-                      JSON.stringify(log.details).slice(0, 80)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <AuditTimeline entries={entries} />
     </>
   );
 }

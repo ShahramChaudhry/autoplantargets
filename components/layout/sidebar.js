@@ -7,15 +7,15 @@ import {
   Target,
   Car,
   Package,
-  CheckCircle,
-  Shield,
-  Lock,
   Building2,
   Users,
-  Scale,
   Bell,
   History,
   LogOut,
+  Calendar,
+  Activity,
+  ClipboardList,
+  Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ROLE_LABELS } from "@/lib/constants";
@@ -27,14 +27,14 @@ const iconMap = {
   Target,
   Car,
   Package,
-  CheckCircle,
-  Shield,
-  Lock,
   Building2,
   Users,
-  Scale,
   Bell,
   History,
+  Calendar,
+  Activity,
+  ClipboardList,
+  Shield,
 };
 
 export function Sidebar({ user, navItems }) {

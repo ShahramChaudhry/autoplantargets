@@ -1,20 +1,30 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { SEED_USERS } from "@/lib/constants";
+import { createClient } from "@/lib/supabase/client";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { UserCog } from "lucide-react";
 
 export function DevSwitchUser() {
-  const [email, setEmail] = useState(SEED_USERS[0].email);
+  const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user?.email) {
+        setEmail(user.email);
+      }
+    });
+  }, []);
 
   if (process.env.NEXT_PUBLIC_DEV_MODE !== "true") {
     return null;
   }
+
+  const currentUser = SEED_USERS.find((u) => u.email === email);
 
   async function handleSwitch() {
     setLoading(true);
@@ -31,31 +41,38 @@ export function DevSwitchUser() {
         return;
       }
 
-      router.refresh();
-      router.push("/dashboard");
+      window.location.assign("/dashboard");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
-      <UserCog className="h-4 w-4 text-amber-700" />
-      <span className="text-xs font-medium text-amber-800">Dev: Switch User</span>
-      <Select
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        className="h-8 w-52 text-xs"
-      >
-        {SEED_USERS.map((u) => (
-          <option key={u.email} value={u.email}>
-            {u.name}
-          </option>
-        ))}
-      </Select>
-      <Button size="sm" variant="outline" onClick={handleSwitch} disabled={loading}>
-        {loading ? "Switching..." : "Switch"}
-      </Button>
+    <div className="flex flex-col items-end gap-1">
+      {currentUser && (
+        <p className="text-xs text-amber-900">
+          Signed in as <span className="font-medium">{currentUser.name}</span>
+        </p>
+      )}
+      <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+        <UserCog className="h-4 w-4 text-amber-700" />
+        <span className="text-xs font-medium text-amber-800">Dev: Switch User</span>
+        <Select
+          value={email || undefined}
+          onChange={(e) => setEmail(e.target.value)}
+          className="h-8 w-52 text-xs"
+          disabled={!email}
+        >
+          {SEED_USERS.map((u) => (
+            <option key={u.email} value={u.email}>
+              {u.name}
+            </option>
+          ))}
+        </Select>
+        <Button size="sm" variant="outline" onClick={handleSwitch} disabled={loading || !email}>
+          {loading ? "Switching..." : "Switch"}
+        </Button>
+      </div>
     </div>
   );
 }

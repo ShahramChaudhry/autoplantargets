@@ -7,6 +7,13 @@ import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 import { Bell, CheckCheck } from "lucide-react";
 
+const NOTIFICATION_LABELS = {
+  approval_required: "Approval Required",
+  reconciliation_failed: "Reconciliation Issue",
+  retail_allocation_ready: "Sales Office Allocation Ready",
+  retail_allocation_complete: "Retail Allocation Complete",
+};
+
 export function NotificationList({ notifications }) {
   const router = useRouter();
 
@@ -59,7 +66,7 @@ export function NotificationList({ notifications }) {
             <div className="flex-1">
               <div className="mb-1 flex items-center gap-2">
                 <Badge variant={n.type === "reconciliation_failed" ? "destructive" : "secondary"}>
-                  {n.type.replace(/_/g, " ")}
+                  {NOTIFICATION_LABELS[n.type] || "Update"}
                 </Badge>
                 {n.status === "unread" && <Badge variant="default">New</Badge>}
               </div>

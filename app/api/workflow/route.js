@@ -1,12 +1,18 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
-import { getNextStatus, logAudit } from "@/lib/workflow";
+import {
+  canPerformAction,
+  getNextStatus,
+  logAudit,
+  notifyUsers,
+} from "@/lib/workflow";
+import { validateRetailAllocationComplete } from "@/lib/retail-allocation";
 import { ROLES } from "@/lib/constants";
+import { planLabel } from "@/lib/plans";
 
 const ACTION_PERMISSIONS = {
   submit_b2b: [ROLES.DEMAND_SUPPLY],
-  submit_md: [ROLES.DEMAND_SUPPLY],
   finalize: [ROLES.DEMAND_SUPPLY],
   b2b_approve: [ROLES.B2B_DIRECTOR],
   b2b_request_changes: [ROLES.B2B_DIRECTOR],
@@ -46,7 +52,24 @@ export async function POST(request) {
     return NextResponse.json({ error: "Period not found" }, { status: 404 });
   }
 
+  if (!canPerformAction(action, period.status, user.role)) {
+    return NextResponse.json(
+      { error: "This action is not available for the current plan status." },
+      { status: 400 }
+    );
+  }
+
+  let retailCompletion = null;
+
+  if (action === "start_retail") {
+    retailCompletion = await validateRetailAllocationComplete(supabase, periodId);
+    if (retailCompletion.error) {
+      return NextResponse.json({ error: retailCompletion.error }, { status: 400 });
+    }
+  }
+
   const newStatus = getNextStatus(action, period.status);
+  const planName = planLabel(period.month, period.year);
 
   const { error } = await supabase
     .from("planning_periods")
@@ -59,44 +82,88 @@ export async function POST(request) {
 
   await logAudit(supabase, {
     userId: user.id,
-    action,
+    action: action === "start_retail" ? "complete_retail_allocation" : action,
     entityType: "planning_period",
     entityId: periodId,
-    details: { from: period.status, to: newStatus, comment: comment || null },
+    details:
+      action === "start_retail"
+        ? {
+            from: period.status,
+            to: newStatus,
+            retail_target: retailCompletion.retailTarget,
+            allocated: retailCompletion.allocated,
+            office_count: retailCompletion.officeCount,
+          }
+        : { from: period.status, to: newStatus, comment: comment?.trim() || null },
     planningPeriodId: periodId,
   });
 
   if (action === "submit_b2b") {
-    const { data: b2bUsers } = await supabase
-      .from("users")
-      .select("id")
-      .eq("role", ROLES.B2B_DIRECTOR);
-
-    for (const u of b2bUsers || []) {
-      await supabase.from("notifications").insert({
-        user_id: u.id,
-        type: "approval_required",
-        message: `Targets submitted for B2B review (${period.month}/${period.year})`,
-        planning_period_id: periodId,
-      });
-    }
+    await notifyUsers(supabase, {
+      role: ROLES.B2B_DIRECTOR,
+      type: "approval_required",
+      message: `${planName} plan submitted for B2B review`,
+      planningPeriodId: periodId,
+    });
   }
 
-  if (action === "submit_md") {
-    const { data: mdUsers } = await supabase
-      .from("users")
-      .select("id")
-      .eq("role", ROLES.MANAGING_DIRECTOR);
-
-    for (const u of mdUsers || []) {
-      await supabase.from("notifications").insert({
-        user_id: u.id,
-        type: "approval_required",
-        message: `Targets submitted for MD review (${period.month}/${period.year})`,
-        planning_period_id: periodId,
-      });
-    }
+  if (action === "b2b_approve") {
+    await notifyUsers(supabase, {
+      role: ROLES.MANAGING_DIRECTOR,
+      type: "approval_required",
+      message: `${planName} plan approved by B2B and forwarded for MD review`,
+      planningPeriodId: periodId,
+    });
   }
 
-  return NextResponse.json({ success: true, status: newStatus });
+  if (action === "b2b_request_changes") {
+    await notifyUsers(supabase, {
+      role: ROLES.DEMAND_SUPPLY,
+      type: "changes_requested",
+      message: `B2B Director requested changes on ${planName} plan`,
+      planningPeriodId: periodId,
+    });
+  }
+
+  if (action === "md_approve") {
+    await notifyUsers(supabase, {
+      role: ROLES.DEMAND_SUPPLY,
+      type: "approved",
+      message: `Managing Director approved ${planName} plan`,
+      planningPeriodId: periodId,
+    });
+  }
+
+  if (action === "md_request_changes") {
+    await notifyUsers(supabase, {
+      role: ROLES.DEMAND_SUPPLY,
+      type: "changes_requested",
+      message: `Managing Director requested changes on ${planName} plan`,
+      planningPeriodId: periodId,
+    });
+  }
+
+  if (action === "finalize") {
+    await notifyUsers(supabase, {
+      role: ROLES.NPM,
+      type: "retail_allocation_ready",
+      message: `${planName} plan has been finalized. Sales Office Allocation can begin.`,
+      planningPeriodId: periodId,
+    });
+  }
+
+  if (action === "start_retail") {
+    await notifyUsers(supabase, {
+      role: ROLES.BRANCH_MANAGER,
+      type: "retail_allocation_complete",
+      message: `Retail allocation for ${planName} is complete. Executive allocation can now begin.`,
+      planningPeriodId: periodId,
+    });
+  }
+
+  return NextResponse.json({
+    success: true,
+    status: newStatus,
+    message: action === "start_retail" ? "Retail allocation completed successfully." : undefined,
+  });
 }

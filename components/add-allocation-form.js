@@ -7,10 +7,22 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 
-export function AddAllocationForm({ type, periodId, options = {}, fields = [] }) {
-  const [form, setForm] = useState(
-    fields.reduce((acc, f) => ({ ...acc, [f.name]: f.default || "" }), { units: "" })
-  );
+function isHiddenField(field) {
+  if (field.hidden) return true;
+  if (field.type === "display" || field.type === "select") return false;
+  return field.name?.endsWith("_id") ?? false;
+}
+
+function emptyFormState(editableFields) {
+  return editableFields.reduce((acc, f) => ({ ...acc, [f.name]: f.default ?? "" }), { units: "" });
+}
+
+export function AddAllocationForm({ type, periodId, options = {}, fields = [], submitLabel = "Add" }) {
+  const displayFields = fields.filter((f) => f.type === "display");
+  const hiddenFields = fields.filter((f) => isHiddenField(f) && f.type !== "display");
+  const editableFields = fields.filter((f) => !isHiddenField(f) && f.type !== "display");
+
+  const [form, setForm] = useState(() => emptyFormState(editableFields));
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
@@ -22,7 +34,7 @@ export function AddAllocationForm({ type, periodId, options = {}, fields = [] })
     e.preventDefault();
     setLoading(true);
 
-    const defaults = fields
+    const defaults = hiddenFields
       .filter((f) => f.default !== undefined && f.default !== "")
       .reduce((acc, f) => ({ ...acc, [f.name]: f.default }), {});
 
@@ -49,7 +61,7 @@ export function AddAllocationForm({ type, periodId, options = {}, fields = [] })
         return;
       }
 
-      setForm(fields.reduce((acc, f) => ({ ...acc, [f.name]: "" }), { units: "" }));
+      setForm(emptyFormState(editableFields));
       router.refresh();
     } finally {
       setLoading(false);
@@ -58,7 +70,15 @@ export function AddAllocationForm({ type, periodId, options = {}, fields = [] })
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-200 bg-white p-4">
-      {fields.map((field) => (
+      {displayFields.map((field) => (
+        <div key={field.label} className="space-y-1">
+          <Label>{field.label}</Label>
+          <p className="min-h-9 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-900">
+            {field.value}
+          </p>
+        </div>
+      ))}
+      {editableFields.map((field) => (
         <div key={field.name} className="space-y-1">
           <Label>{field.label}</Label>
           {field.type === "select" ? (
@@ -86,7 +106,7 @@ export function AddAllocationForm({ type, periodId, options = {}, fields = [] })
         </div>
       ))}
       <Button type="submit" disabled={loading}>
-        {loading ? "Adding..." : "Add"}
+        {loading ? "Adding..." : submitLabel}
       </Button>
     </form>
   );

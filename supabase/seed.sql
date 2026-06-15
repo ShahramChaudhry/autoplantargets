@@ -3,31 +3,33 @@
 -- Creates auth users, profiles, and one in-progress planning cycle
 
 -- Seed auth users (password: password123 for all)
+-- Token columns must be '' not NULL or login returns "Database error querying schema"
 INSERT INTO auth.users (
   id, instance_id, aud, role, email, encrypted_password,
   email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
-  created_at, updated_at, confirmation_token, recovery_token
+  created_at, updated_at,
+  confirmation_token, recovery_token, email_change, email_change_token_new, email_change_token_current
 ) VALUES
   ('11111111-1111-1111-1111-111111111101', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
    'demand@autoplan.com', crypt('password123', gen_salt('bf')), NOW(),
    '{"provider":"email","providers":["email"]}',
-   '{"name":"Demand & Supply Team","role":"demand_supply"}', NOW(), NOW(), '', ''),
+   '{"name":"Demand & Supply Team","role":"demand_supply"}', NOW(), NOW(), '', '', '', '', ''),
   ('11111111-1111-1111-1111-111111111102', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
    'b2bdirector@autoplan.com', crypt('password123', gen_salt('bf')), NOW(),
    '{"provider":"email","providers":["email"]}',
-   '{"name":"B2B Director","role":"b2b_director"}', NOW(), NOW(), '', ''),
+   '{"name":"B2B Director","role":"b2b_director"}', NOW(), NOW(), '', '', '', '', ''),
   ('11111111-1111-1111-1111-111111111103', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
    'md@autoplan.com', crypt('password123', gen_salt('bf')), NOW(),
    '{"provider":"email","providers":["email"]}',
-   '{"name":"Managing Director","role":"managing_director"}', NOW(), NOW(), '', ''),
+   '{"name":"Managing Director","role":"managing_director"}', NOW(), NOW(), '', '', '', '', ''),
   ('11111111-1111-1111-1111-111111111104', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
    'npm@autoplan.com', crypt('password123', gen_salt('bf')), NOW(),
    '{"provider":"email","providers":["email"]}',
-   '{"name":"National Performance Manager","role":"national_performance_manager"}', NOW(), NOW(), '', ''),
+   '{"name":"National Performance Manager","role":"national_performance_manager"}', NOW(), NOW(), '', '', '', '', ''),
   ('11111111-1111-1111-1111-111111111105', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
    'branchmanager@autoplan.com', crypt('password123', gen_salt('bf')), NOW(),
    '{"provider":"email","providers":["email"]}',
-   '{"name":"Branch Manager","role":"branch_manager"}', NOW(), NOW(), '', '')
+   '{"name":"Branch Manager","role":"branch_manager"}', NOW(), NOW(), '', '', '', '', '')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO auth.identities (
@@ -49,9 +51,133 @@ INSERT INTO users (id, name, email, role) VALUES
   ('11111111-1111-1111-1111-111111111105', 'Branch Manager', 'branchmanager@autoplan.com', 'branch_manager')
 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role;
 
--- Planning period: June 2026 - executive allocation with reconciliation failure
+-- Master data: Brand → Model → Article Code
+INSERT INTO brands (name) VALUES
+  ('Toyota'),
+  ('Lexus'),
+  ('Nissan'),
+  ('Suzuki')
+ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO vehicle_models (brand_id, name)
+SELECT b.id, m.name
+FROM brands b
+CROSS JOIN (VALUES
+  ('Corolla'), ('Camry'), ('Prado'), ('Hilux'), ('Land Cruiser')
+) AS m(name)
+WHERE b.name = 'Toyota'
+ON CONFLICT (brand_id, name) DO NOTHING;
+
+INSERT INTO vehicle_models (brand_id, name)
+SELECT b.id, m.name
+FROM brands b
+CROSS JOIN (VALUES ('ES'), ('IS'), ('NX'), ('RX'), ('LX')) AS m(name)
+WHERE b.name = 'Lexus'
+ON CONFLICT (brand_id, name) DO NOTHING;
+
+INSERT INTO vehicle_models (brand_id, name)
+SELECT b.id, m.name
+FROM brands b
+CROSS JOIN (VALUES
+  ('Sunny'), ('Altima'), ('Patrol'), ('X-Trail'), ('Kicks')
+) AS m(name)
+WHERE b.name = 'Nissan'
+ON CONFLICT (brand_id, name) DO NOTHING;
+
+INSERT INTO vehicle_models (brand_id, name)
+SELECT b.id, m.name
+FROM brands b
+CROSS JOIN (VALUES
+  ('Swift'), ('Baleno'), ('Dzire'), ('Jimny'), ('Ertiga')
+) AS m(name)
+WHERE b.name = 'Suzuki'
+ON CONFLICT (brand_id, name) DO NOTHING;
+
+INSERT INTO article_codes (model_id, code)
+SELECT vm.id, a.code
+FROM vehicle_models vm
+JOIN brands b ON b.id = vm.brand_id
+CROSS JOIN (VALUES
+  ('Corolla', 'COR-GLI-2026'),
+  ('Corolla', 'COR-XLI-2026'),
+  ('Corolla', 'COR-HYB-2026'),
+  ('Camry', 'CAM-SE-2026'),
+  ('Camry', 'CAM-XLE-2026'),
+  ('Camry', 'CAM-HYB-2026'),
+  ('Prado', 'PRA-TXL-2026'),
+  ('Prado', 'PRA-GXL-2026'),
+  ('Prado', 'PRA-VXR-2026'),
+  ('Hilux', 'HIL-DX-2026'),
+  ('Hilux', 'HIL-GLX-2026'),
+  ('Land Cruiser', 'LC-GXR-2026'),
+  ('Land Cruiser', 'LC-VXR-2026')
+) AS a(model_name, code)
+WHERE b.name = 'Toyota' AND vm.name = a.model_name
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO article_codes (model_id, code)
+SELECT vm.id, a.code
+FROM vehicle_models vm
+JOIN brands b ON b.id = vm.brand_id
+CROSS JOIN (VALUES
+  ('ES', 'ES-250-2026'),
+  ('ES', 'ES-300H-2026'),
+  ('IS', 'IS-300-2026'),
+  ('IS', 'IS-350-FSPORT-2026'),
+  ('NX', 'NX-250-2026'),
+  ('NX', 'NX-350H-2026'),
+  ('RX', 'RX-350-2026'),
+  ('RX', 'RX-500H-2026'),
+  ('LX', 'LX-600-2026'),
+  ('LX', 'LX-600-FSPORT-2026')
+) AS a(model_name, code)
+WHERE b.name = 'Lexus' AND vm.name = a.model_name
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO article_codes (model_id, code)
+SELECT vm.id, a.code
+FROM vehicle_models vm
+JOIN brands b ON b.id = vm.brand_id
+CROSS JOIN (VALUES
+  ('Sunny', 'SUN-S-2026'),
+  ('Sunny', 'SUN-SV-2026'),
+  ('Altima', 'ALT-S-2026'),
+  ('Altima', 'ALT-SL-2026'),
+  ('Patrol', 'PAT-SE-2026'),
+  ('Patrol', 'PAT-TITANIUM-2026'),
+  ('X-Trail', 'XTR-S-2026'),
+  ('X-Trail', 'XTR-SL-2026'),
+  ('Kicks', 'KIC-S-2026'),
+  ('Kicks', 'KIC-SV-2026')
+) AS a(model_name, code)
+WHERE b.name = 'Nissan' AND vm.name = a.model_name
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO article_codes (model_id, code)
+SELECT vm.id, a.code
+FROM vehicle_models vm
+JOIN brands b ON b.id = vm.brand_id
+CROSS JOIN (VALUES
+  ('Swift', 'SWI-GL-2026'),
+  ('Swift', 'SWI-GLX-2026'),
+  ('Baleno', 'BAL-GL-2026'),
+  ('Baleno', 'BAL-GLX-2026'),
+  ('Dzire', 'DZI-GL-2026'),
+  ('Dzire', 'DZI-GLX-2026'),
+  ('Jimny', 'JIM-MT-2026'),
+  ('Jimny', 'JIM-AT-2026'),
+  ('Ertiga', 'ERT-GL-2026'),
+  ('Ertiga', 'ERT-GLX-2026')
+) AS a(model_name, code)
+WHERE b.name = 'Suzuki' AND vm.name = a.model_name
+ON CONFLICT (code) DO NOTHING;
+
+-- Planning periods (monthly target plans)
 INSERT INTO planning_periods (id, month, year, status) VALUES
-  ('22222222-2222-2222-2222-222222222201', 6, 2026, 'reconciliation_failed');
+  ('22222222-2222-2222-2222-222222222201', 6, 2026, 'reconciliation_failed'),
+  ('22222222-2222-2222-2222-222222222202', 7, 2026, 'draft'),
+  ('22222222-2222-2222-2222-222222222203', 8, 2026, 'completed')
+ON CONFLICT (month, year) DO UPDATE SET status = EXCLUDED.status;
 
 -- Targets by Brand & Sales Group
 INSERT INTO targets (id, planning_period_id, brand, sales_group, target_units) VALUES
@@ -122,6 +248,7 @@ INSERT INTO audit_logs (user_id, action, entity_type, entity_id, details, planni
   ('11111111-1111-1111-1111-111111111101', 'submitted', 'planning_period', '22222222-2222-2222-2222-222222222201', '{"status":"submitted_md"}', '22222222-2222-2222-2222-222222222201'),
   ('11111111-1111-1111-1111-111111111103', 'approved', 'planning_period', '22222222-2222-2222-2222-222222222201', '{"status":"md_approved","comment":"Approved for finalization"}', '22222222-2222-2222-2222-222222222201'),
   ('11111111-1111-1111-1111-111111111101', 'finalized', 'planning_period', '22222222-2222-2222-2222-222222222201', '{"status":"finalized"}', '22222222-2222-2222-2222-222222222201'),
+  ('11111111-1111-1111-1111-111111111104', 'complete_retail_allocation', 'planning_period', '22222222-2222-2222-2222-222222222201', '{"from":"finalized","to":"retail_allocation","retail_target":850,"allocated":850,"office_count":3}', '22222222-2222-2222-2222-222222222201'),
   ('11111111-1111-1111-1111-111111111104', 'allocated', 'sales_office_allocations', '66666666-6666-6666-6666-666666666601', '{"sales_office":"Dubai","units":380}', '22222222-2222-2222-2222-222222222201'),
   ('11111111-1111-1111-1111-111111111105', 'allocated', 'executive_allocations', '77777777-7777-7777-7777-777777777701', '{"sales_executive":"Ahmed Hassan","units":150}', '22222222-2222-2222-2222-222222222201'),
   ('11111111-1111-1111-1111-111111111105', 'reconciliation_failed', 'planning_period', '22222222-2222-2222-2222-222222222201', '{"model_sum":850,"office_sum":850,"executive_sum":845,"variance":-5}', '22222222-2222-2222-2222-222222222201');

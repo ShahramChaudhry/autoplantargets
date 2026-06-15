@@ -43,6 +43,28 @@ CREATE TABLE users (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Master data: Brand → Model → Article Code
+CREATE TABLE brands (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE vehicle_models (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  brand_id UUID NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (brand_id, name)
+);
+
+CREATE TABLE article_codes (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  model_id UUID NOT NULL REFERENCES vehicle_models(id) ON DELETE CASCADE,
+  code TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Planning periods
 CREATE TABLE planning_periods (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -82,7 +104,8 @@ CREATE TABLE article_allocations (
   article_code TEXT NOT NULL,
   units INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (model_allocation_id, article_code)
 );
 
 -- Sales office allocations (Retail)
@@ -129,6 +152,8 @@ CREATE TABLE audit_logs (
 );
 
 -- Indexes
+CREATE INDEX idx_vehicle_models_brand ON vehicle_models(brand_id);
+CREATE INDEX idx_article_codes_model ON article_codes(model_id);
 CREATE INDEX idx_targets_planning_period ON targets(planning_period_id);
 CREATE INDEX idx_model_allocations_target ON model_allocations(target_id);
 CREATE INDEX idx_article_allocations_model ON article_allocations(model_allocation_id);
@@ -172,6 +197,9 @@ CREATE TRIGGER executive_allocations_updated_at
 
 -- Row Level Security
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE brands ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vehicle_models ENABLE ROW LEVEL SECURITY;
+ALTER TABLE article_codes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE planning_periods ENABLE ROW LEVEL SECURITY;
 ALTER TABLE targets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE model_allocations ENABLE ROW LEVEL SECURITY;
@@ -186,6 +214,15 @@ CREATE POLICY "Users can view own profile" ON users
   FOR SELECT USING (auth.uid() = id);
 
 CREATE POLICY "Authenticated users can view all users" ON users
+  FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "Authenticated can view brands" ON brands
+  FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "Authenticated can view vehicle_models" ON vehicle_models
+  FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "Authenticated can view article_codes" ON article_codes
   FOR SELECT TO authenticated USING (true);
 
 CREATE POLICY "Authenticated full access planning_periods" ON planning_periods

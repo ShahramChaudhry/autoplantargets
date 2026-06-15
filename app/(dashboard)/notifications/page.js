@@ -1,10 +1,10 @@
 import { Header } from "@/components/layout/header";
 import { NotificationList } from "@/components/notification-list";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentUser } from "@/lib/auth";
+import { requirePageAccess } from "@/lib/auth";
 
 export default async function NotificationsPage() {
-  const user = await getCurrentUser();
+  const user = await requirePageAccess("/notifications");
   const supabase = await createClient();
 
   const { data: notifications } = await supabase
