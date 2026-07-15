@@ -9,5 +9,6 @@ export default async function Home() {
   if (user.role === ROLES.B2B_DIRECTOR || user.role === ROLES.MANAGING_DIRECTOR) {
     redirect("/approvals");
   }
+  if (user.role === ROLES.NPM) redirect("/allocations");
   redirect("/dashboard");
 }

@@ -4,13 +4,15 @@ import { RetailAllocationProgress } from "@/components/allocations/retail-alloca
 import { RetailAllocationLockBanner } from "@/components/allocations/retail-allocation-lock-banner";
 import { RetailAllocationCompletion } from "@/components/allocations/retail-allocation-completion";
 import { CompleteRetailAllocationAction } from "@/components/workflow/complete-retail-allocation-action";
-import { SalesOfficeAllocationGrid } from "@/components/allocations/sales-office-allocation-grid";
+import { NpmOfficeAllocationPanel } from "@/components/allocations/npm-office-allocation-panel";
 import { createClient } from "@/lib/supabase/server";
 import {
   getRetailAllocationProgress,
   isRetailAllocationCompleteStatus,
   isRetailAllocationEditable,
+  fetchRetailAllocationTotals,
 } from "@/lib/retail-allocation";
+import { getPlanningPeriods } from "@/lib/data";
 import { planLabel } from "@/lib/plans";
 
 export async function RetailAllocationContent({ plan, user }) {
@@ -25,22 +27,37 @@ export async function RetailAllocationContent({ plan, user }) {
   }
 
   const supabase = await createClient();
+  const periods = await getPlanningPeriods();
 
-  const { data: offices } = await supabase
-    .from("sales_office_allocations")
+  const { data: targets } = await supabase
+    .from("targets")
     .select("*")
     .eq("planning_period_id", plan.id)
-    .order("sales_office");
+    .order("brand");
 
-  const { data: retailTargets } = await supabase
-    .from("targets")
-    .select("target_units, brand, model")
-    .eq("planning_period_id", plan.id)
-    .eq("sales_group", "Retail");
+  const targetIds = (targets || []).filter((t) => !t.sales_office).map((t) => t.id);
+  let modelAllocations = [];
+  let articleAllocations = [];
 
-  const retailTotal = (retailTargets || []).reduce((sum, target) => sum + target.target_units, 0);
-  const officeTotal = (offices || []).reduce((sum, office) => sum + office.units, 0);
-  const progress = getRetailAllocationProgress(retailTotal, officeTotal);
+  if (targetIds.length) {
+    const { data: modelRows } = await supabase
+      .from("model_allocations")
+      .select("*")
+      .in("target_id", targetIds);
+    modelAllocations = modelRows || [];
+
+    const modelIds = modelAllocations.map((m) => m.id);
+    if (modelIds.length) {
+      const { data: articleRows } = await supabase
+        .from("article_allocations")
+        .select("*")
+        .in("model_allocation_id", modelIds);
+      articleAllocations = articleRows || [];
+    }
+  }
+
+  const { retailTarget, allocated } = await fetchRetailAllocationTotals(supabase, plan.id);
+  const progress = getRetailAllocationProgress(retailTarget, allocated);
   const isEditable = isRetailAllocationEditable(plan.status);
   const isComplete = isRetailAllocationCompleteStatus(plan.status);
 
@@ -60,8 +77,8 @@ export async function RetailAllocationContent({ plan, user }) {
       <PlanContextBanner plan={plan} basePath="/allocations" />
 
       <RetailAllocationProgress
-        retailTarget={retailTotal}
-        allocated={officeTotal}
+        retailTarget={retailTarget}
+        allocated={allocated}
         isComplete={isComplete}
       />
 
@@ -79,27 +96,23 @@ export async function RetailAllocationContent({ plan, user }) {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
-            Sales Office Allocation Grid — {planLabel(plan.month, plan.year)}
+            Sales Office Allocation — {planLabel(plan.month, plan.year)}
           </CardTitle>
           <p className="text-sm text-slate-500">
-            Split the Retail targets created by Demand &amp; Supply across sales offices. This step
-            is only for National Performance Manager / Retail Head.
+            Same Model × Sales Office grid format as planning. Values on the left come from Demand
+            &amp; Supply; enter how each model is split across offices.
           </p>
         </CardHeader>
         <CardContent>
-          {retailTotal <= 0 ? (
-            <p className="text-sm text-slate-500">
-              No Retail model targets are available yet. Demand &amp; Supply must enter and approve
-              Retail Brand → Model targets first.
-            </p>
-          ) : (
-            <SalesOfficeAllocationGrid
-              planId={plan.id}
-              retailTotal={retailTotal}
-              existingAllocations={offices || []}
-              editable={isEditable}
-            />
-          )}
+          <NpmOfficeAllocationPanel
+            plan={plan}
+            targets={targets || []}
+            modelAllocations={modelAllocations}
+            articleAllocations={articleAllocations}
+            periods={periods}
+            editable={isEditable}
+            user={user}
+          />
         </CardContent>
       </Card>
 
@@ -107,8 +120,8 @@ export async function RetailAllocationContent({ plan, user }) {
         <CompleteRetailAllocationAction
           periodId={plan.id}
           planName={planLabel(plan.month, plan.year)}
-          retailTarget={retailTotal}
-          allocated={officeTotal}
+          retailTarget={retailTarget}
+          allocated={allocated}
           status={plan.status}
           canComplete={progress.isFullyAllocated}
         />

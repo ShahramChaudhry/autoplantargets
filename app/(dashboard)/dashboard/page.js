@@ -26,6 +26,9 @@ export default async function DashboardPage() {
   if (current?.role === ROLES.B2B_DIRECTOR || current?.role === ROLES.MANAGING_DIRECTOR) {
     redirect("/approvals");
   }
+  if (current?.role === ROLES.NPM) {
+    redirect("/allocations");
+  }
 
   const user = await requirePageAccess("/dashboard");
 
