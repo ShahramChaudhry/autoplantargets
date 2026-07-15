@@ -76,12 +76,14 @@ CREATE TABLE planning_periods (
   UNIQUE (month, year)
 );
 
--- Brand & Sales Group targets
+-- Brand & Sales Group targets (model / sales_office support hierarchical target entry)
 CREATE TABLE targets (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   planning_period_id UUID NOT NULL REFERENCES planning_periods(id) ON DELETE CASCADE,
   brand TEXT NOT NULL,
   sales_group TEXT NOT NULL,
+  model TEXT,
+  sales_office TEXT,
   target_units INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()

@@ -16,8 +16,8 @@ import {
   isRetailAllocationCompleteStatus,
   isRetailAllocationEditable,
 } from "@/lib/retail-allocation";
-import { SALES_OFFICES } from "@/lib/constants";
 import { planLabel } from "@/lib/plans";
+import { getSalesOffices } from "@/src/data";
 
 export default async function RetailAllocationsPage({ searchParams }) {
   const user = await requirePageAccess("/retail-allocations");
@@ -46,6 +46,10 @@ export default async function RetailAllocationsPage({ searchParams }) {
   const progress = getRetailAllocationProgress(retailTotal, officeTotal);
   const isEditable = plan ? isRetailAllocationEditable(plan.status) : false;
   const isComplete = plan ? isRetailAllocationCompleteStatus(plan.status) : false;
+  const officeOptions = [
+    ...getSalesOffices("Toyota"),
+    ...getSalesOffices("Honda"),
+  ];
 
   const { data: completionLog } =
     plan && isComplete
@@ -97,7 +101,7 @@ export default async function RetailAllocationsPage({ searchParams }) {
                   <AddAllocationForm
                     type="offices"
                     periodId={plan.id}
-                    options={{ offices: SALES_OFFICES }}
+                    options={{ offices: officeOptions }}
                     fields={[
                       {
                         label: "Monthly Target Plan",

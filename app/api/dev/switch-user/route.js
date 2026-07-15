@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { readDb } from "@/lib/local-db/store";
+import {
+  SESSION_COOKIE,
+  encodeSession,
+  sessionCookieOptions,
+} from "@/lib/local-db/session";
 import { SEED_USERS } from "@/lib/constants";
 
 export async function POST(request) {
@@ -8,22 +13,18 @@ export async function POST(request) {
   }
 
   const { email } = await request.json();
-  const user = SEED_USERS.find((u) => u.email === email);
-
-  if (!user) {
+  const seed = SEED_USERS.find((u) => u.email === email);
+  if (!seed) {
     return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
 
-  const supabase = await createClient();
-
-  const { error } = await supabase.auth.signInWithPassword({
-    email: user.email,
-    password: user.password,
-  });
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+  const db = await readDb();
+  const user = db.users.find((u) => u.email === email);
+  if (!user) {
+    return NextResponse.json({ error: "User not found in local database" }, { status: 404 });
   }
 
-  return NextResponse.json({ success: true, email: user.email });
+  const response = NextResponse.json({ success: true, email: user.email });
+  response.cookies.set(SESSION_COOKIE, encodeSession(user), sessionCookieOptions());
+  return response;
 }

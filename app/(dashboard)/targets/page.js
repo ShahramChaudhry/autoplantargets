@@ -14,15 +14,15 @@ export default async function TargetsPage({ searchParams }) {
   await requirePageAccess("/targets");
   const params = await searchParams;
   const planSlugParam = params?.plan;
+  const periods = await getPlanningPeriods();
 
   if (!planSlugParam) {
-    const periods = await getPlanningPeriods();
     if (periods.length === 0) {
       return (
         <>
           <Header
             title="Target Creation"
-            description="Set monthly targets by brand and sales group"
+            description="Set monthly targets by division, sales group, model, and sales office"
           />
           <DemandSupplyStepper currentStep="targets" plan={null} />
           <EmptyPlansGuide />
@@ -50,11 +50,16 @@ export default async function TargetsPage({ searchParams }) {
     <>
       <Header
         title="Target Creation"
-        description="Set monthly targets by brand and sales group"
+        description="Set monthly targets by division, sales group, model, and sales office"
       />
       <DemandSupplyStepper currentStep="targets" plan={plan} />
       {!editable && <PlanLockBanner />}
-      <TargetEntryPanel plan={plan} targets={targets || []} editable={editable} />
+      <TargetEntryPanel
+        plan={plan}
+        targets={targets || []}
+        periods={periods}
+        editable={editable}
+      />
     </>
   );
 }

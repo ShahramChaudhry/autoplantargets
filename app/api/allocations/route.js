@@ -34,6 +34,8 @@ function buildAuditDetails(type, action, existing, data) {
       return {
         brand: data.brand,
         sales_group: data.sales_group,
+        model: data.model || null,
+        sales_office: data.sales_office || null,
         target_units: data.target_units,
       };
     }
@@ -41,6 +43,8 @@ function buildAuditDetails(type, action, existing, data) {
       return {
         brand: existing.brand,
         sales_group: existing.sales_group,
+        model: existing.model || null,
+        sales_office: existing.sales_office || null,
         from: existing.target_units,
         to: data.target_units,
       };
@@ -49,6 +53,8 @@ function buildAuditDetails(type, action, existing, data) {
       return {
         brand: existing.brand,
         sales_group: existing.sales_group,
+        model: existing.model || null,
+        sales_office: existing.sales_office || null,
         units: existing.target_units,
       };
     }
