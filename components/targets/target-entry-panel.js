@@ -19,7 +19,8 @@ import {
   rowKey,
 } from "@/src/data";
 import { planLabel, planSlug, planStepPath } from "@/lib/plans";
-import { Save, ArrowRight } from "lucide-react";
+import { Save, ArrowRight, Plus } from "lucide-react";
+import { CreatePlanModal } from "@/components/plan/create-plan-modal";
 
 function findExistingTarget(targets, brand, salesGroup, model, salesOffice) {
   return targets.find((t) => {
@@ -53,6 +54,7 @@ export function TargetEntryPanel({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [showAllGroups, setShowAllGroups] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const division = getDivisionById(divisionId);
   const salesGroupOptions = showAllGroups ? getSalesGroups(division) : getPrimarySalesGroups();
@@ -235,8 +237,33 @@ export function TargetEntryPanel({
 
   return (
     <div className="space-y-4">
-      {/* Compact filter bar — no heavy cards */}
+      {/* Compact filter bar — Month, Division, Sales Group */}
       <div className="flex flex-wrap items-end gap-3 border border-slate-200 bg-white px-4 py-3">
+        <div className="min-w-[160px] space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-xs text-slate-500">Month</Label>
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="inline-flex items-center gap-0.5 text-[11px] text-slate-500 underline-offset-2 hover:underline"
+            >
+              <Plus className="h-3 w-3" />
+              New
+            </button>
+          </div>
+          <Select
+            value={planPath}
+            onChange={(e) => handleMonthChange(e.target.value)}
+            className="h-9"
+          >
+            {monthOptions.map((p) => (
+              <option key={p.id} value={planSlug(p.month, p.year)}>
+                {formatPeriod(p.month, p.year)}
+              </option>
+            ))}
+          </Select>
+        </div>
+
         <div className="min-w-[140px] space-y-1">
           <Label className="text-xs text-slate-500">Division</Label>
           <Select
@@ -248,21 +275,6 @@ export function TargetEntryPanel({
             {visibleDivisions.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-
-        <div className="min-w-[160px] space-y-1">
-          <Label className="text-xs text-slate-500">Month</Label>
-          <Select
-            value={planPath}
-            onChange={(e) => handleMonthChange(e.target.value)}
-            className="h-9"
-          >
-            {monthOptions.map((p) => (
-              <option key={p.id} value={planSlug(p.month, p.year)}>
-                {formatPeriod(p.month, p.year)}
               </option>
             ))}
           </Select>
@@ -441,6 +453,8 @@ export function TargetEntryPanel({
           <span className="font-semibold text-slate-800">{total.toLocaleString()}</span> units
         </p>
       </div>
+
+      <CreatePlanModal open={createOpen} onClose={() => setCreateOpen(false)} />
     </div>
   );
 }

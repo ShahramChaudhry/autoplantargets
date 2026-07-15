@@ -1,6 +1,6 @@
+import { redirect } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
-import { DemandSupplyDashboard } from "@/components/dashboard/demand-supply-dashboard";
 import {
   B2BDashboard,
   MDDashboard,
@@ -8,11 +8,10 @@ import {
   BranchManagerDashboard,
   ITAdminDashboard,
 } from "@/components/dashboard/role-dashboards";
-import { requirePageAccess } from "@/lib/auth";
+import { requirePageAccess, getCurrentUser } from "@/lib/auth";
 import { ROLES, ROLE_LABELS } from "@/lib/constants";
 import {
   getActivePlan,
-  getDemandSupplyDashboardKPIs,
   getRoleDashboardData,
   getQueuePlan,
   queuePlanHref,
@@ -20,20 +19,12 @@ import {
 } from "@/lib/data";
 
 export default async function DashboardPage() {
-  const user = await requirePageAccess("/dashboard");
-
-  if (user.role === ROLES.DEMAND_SUPPLY) {
-    const kpis = await getDemandSupplyDashboardKPIs(user.id);
-    return (
-      <>
-        <Header
-          title={`Welcome, ${user.name}`}
-          description="Monthly target planning overview"
-        />
-        <DemandSupplyDashboard kpis={kpis} />
-      </>
-    );
+  const current = await getCurrentUser();
+  if (current?.role === ROLES.DEMAND_SUPPLY) {
+    redirect("/monthly-planning");
   }
+
+  const user = await requirePageAccess("/dashboard");
 
   if (user.role === ROLES.IT_ADMIN) {
     const adminData = await getITAdminDashboardData();

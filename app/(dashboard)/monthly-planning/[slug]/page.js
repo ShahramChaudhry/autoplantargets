@@ -10,11 +10,11 @@ import { DEMAND_SUPPLY_WORKFLOW_STEPS } from "@/lib/constants";
 const STEP_META = {
   plan: {
     title: (label) => label,
-    description: "Monthly target plan workspace",
+    description: "Monthly target plan",
   },
   targets: {
-    title: () => "Target Creation",
-    description: "Enter monthly targets by brand, sales group, and sales office",
+    title: () => "Monthly Planning",
+    description: "Select month, division, and sales group — then enter targets in the grid",
   },
   models: {
     title: () => "Model Allocation",
@@ -38,11 +38,16 @@ export default async function MonthlyPlanningPlanPage({ params, searchParams }) 
   const user = await requirePageAccess("/monthly-planning");
   const { slug } = await params;
   const query = await searchParams;
-  const step = normalizeStepKey(query?.step || "plan");
-  const validStep = DEMAND_SUPPLY_WORKFLOW_STEPS.some((s) => s.key === step);
+  let step = normalizeStepKey(query?.step || "targets");
 
+  // Always land on target entry — skip plan list / workspace hubs
+  if (step === "plan") {
+    redirect(`/monthly-planning/${slug}?step=targets`);
+  }
+
+  const validStep = DEMAND_SUPPLY_WORKFLOW_STEPS.some((s) => s.key === step);
   if (!validStep) {
-    redirect(`/monthly-planning/${slug}`);
+    redirect(`/monthly-planning/${slug}?step=targets`);
   }
 
   const periods = await getPlanningPeriods();
@@ -54,11 +59,12 @@ export default async function MonthlyPlanningPlanPage({ params, searchParams }) 
 
   const label = planLabel(plan.month, plan.year);
   const meta = STEP_META[step];
+  const showStepper = step !== "targets";
 
   return (
     <>
       <Header title={meta.title(label)} description={meta.description} />
-      <DemandSupplyStepper currentStep={step} plan={plan} />
+      {showStepper && <DemandSupplyStepper currentStep={step} plan={plan} />}
       <PlanningStepContent step={step} plan={plan} periods={periods} user={user} />
     </>
   );

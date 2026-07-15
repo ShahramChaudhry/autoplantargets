@@ -41,7 +41,7 @@ export function DevSwitchUser() {
         return;
       }
 
-      window.location.assign("/dashboard");
+      window.location.assign("/");
     } finally {
       setLoading(false);
     }
