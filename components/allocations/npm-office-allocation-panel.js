@@ -198,14 +198,12 @@ export function NpmOfficeAllocationPanel({
         if (dsTotal <= 0) continue;
 
         let officeSum = 0;
-        let hasValue = false;
         for (const office of divOffices) {
-          const units = parseInt(values[rowKey(model, office.name)], 10) || 0;
-          if (units > 0) hasValue = true;
-          officeSum += units;
+          officeSum += parseInt(values[rowKey(model, office.name)], 10) || 0;
         }
 
-        if (hasValue && officeSum !== dsTotal) {
+        // Only over-allocation is an error; under-allocation is OK while editing
+        if (officeSum > dsTotal) {
           errors.push({
             division: division.name,
             model,
@@ -257,7 +255,7 @@ export function NpmOfficeAllocationPanel({
     }
     if (mismatchErrors.length > 0) {
       setError(
-        `Office totals must match Demand & Supply model totals for ${mismatchErrors.length} model(s).`
+        `Office totals exceed Demand & Supply model totals for ${mismatchErrors.length} model(s).`
       );
       return;
     }
@@ -395,8 +393,9 @@ export function NpmOfficeAllocationPanel({
       </div>
 
       <p className="text-xs text-slate-500">
-        Models and totals come from Demand &amp; Supply. Split each model total across sales
-        offices. Office column sums must equal the D&amp;S model total.
+        Models and totals come from Demand &amp; Supply. Split each model across sales offices.
+        Partial allocations are fine to save; only going over the D&amp;S total is blocked. Full
+        match is required before Mark Retail Allocation Complete.
       </p>
 
       {(error || message) && (
@@ -409,15 +408,17 @@ export function NpmOfficeAllocationPanel({
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           <div className="flex items-start gap-2">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <ul className="space-y-1 text-xs">
-              {mismatchErrors.slice(0, 6).map((e) => (
-                <li key={`${e.division}-${e.model}`}>
-                  {e.division} {e.model}: D&amp;S {e.dsTotal} vs offices {e.officeSum} (
-                  {e.diff > 0 ? "+" : ""}
-                  {e.diff})
-                </li>
-              ))}
-            </ul>
+            <div>
+              <p className="font-medium">Over-allocated vs Demand &amp; Supply</p>
+              <ul className="mt-1 space-y-1 text-xs">
+                {mismatchErrors.slice(0, 6).map((e) => (
+                  <li key={`${e.division}-${e.model}`}>
+                    {e.division} {e.model}: D&amp;S {e.dsTotal} vs offices {e.officeSum} (+
+                    {e.diff})
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         </div>
       )}
