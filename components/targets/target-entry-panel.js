@@ -13,6 +13,7 @@ import {
   getSalesGroups,
   getUnionOfficesForUser,
   getSalesGroupByCode,
+  getSalesGroupByName,
   getModels,
   getOfficeName,
   getOfficeLabel,
@@ -20,7 +21,7 @@ import {
 } from "@/src/data";
 import { getArticleCodesForModel } from "@/lib/constants";
 import { planSlug, planStepPath } from "@/lib/plans";
-import { Save, Send, ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { Save, Send, ChevronDown, ChevronRight, Plus, AlertTriangle } from "lucide-react";
 import { CreatePlanModal } from "@/components/plan/create-plan-modal";
 
 function findExistingTarget(targets, brand, salesGroup, model, salesOffice) {
@@ -38,6 +39,55 @@ function articleKey(divisionName, model) {
   return `${divisionName}::${model}`;
 }
 
+function computeArticleMismatches({
+  divisions,
+  salesGroup,
+  expandedArticles,
+  values,
+  articleValues,
+  officesForDivision,
+}) {
+  if (!salesGroup) return [];
+
+  const errors = [];
+
+  for (const division of divisions) {
+    const models = getModels(division, salesGroup);
+    const divOffices = officesForDivision(division);
+
+    for (const model of models) {
+      if (!expandedArticles.has(articleKey(division.name, model))) continue;
+
+      const articles = getArticleCodesForModel(division.name, model);
+      for (const office of divOffices) {
+        const modelTotal = parseInt(values[rowKey(model, office.name)], 10) || 0;
+        let articleSum = 0;
+        let hasArticleValue = false;
+
+        for (const code of articles) {
+          const units = parseInt(articleValues[rowKey(model, office.name, code)], 10) || 0;
+          if (units > 0) hasArticleValue = true;
+          articleSum += units;
+        }
+
+        if (hasArticleValue && articleSum !== modelTotal) {
+          errors.push({
+            division: division.name,
+            model,
+            office: office.label,
+            officeName: office.name,
+            modelTotal,
+            articleSum,
+            diff: articleSum - modelTotal,
+          });
+        }
+      }
+    }
+  }
+
+  return errors;
+}
+
 export function TargetEntryPanel({
   plan,
   targets,
@@ -45,6 +95,7 @@ export function TargetEntryPanel({
   articleAllocations = [],
   periods = [],
   editable = true,
+  readOnly = false,
   user = null,
 }) {
   const router = useRouter();
@@ -73,6 +124,14 @@ export function TargetEntryPanel({
 
   const monthOptions = periods.length > 0 ? periods : [plan];
   const planPath = planSlug(plan.month, plan.year);
+  const isLocked = readOnly || !editable;
+
+  // In review mode, default to first sales group present in saved targets
+  useEffect(() => {
+    if (!readOnly || targets.length === 0) return;
+    const sg = getSalesGroupByName(targets[0].sales_group);
+    if (sg) setSalesGroupCode(sg.code);
+  }, [readOnly, targets]);
 
   useEffect(() => {
     if (salesGroupOptions.length === 0) return;
@@ -140,6 +199,26 @@ export function TargetEntryPanel({
     setRecordIds(nextIds);
     setArticleValues(nextArticleValues);
     setArticleRecordIds(nextArticleIds);
+
+    if (readOnly) {
+      const articleExpand = new Set();
+      for (const division of divisions) {
+        const models = getModels(division, salesGroup);
+        const divOffices = officesForDivision(division);
+        for (const model of models) {
+          const codes = getArticleCodesForModel(division.name, model);
+          const hasArticleData = codes.some((code) =>
+            divOffices.some((office) => {
+              const aKey = rowKey(model, office.name, code);
+              return nextArticleValues[aKey] && parseInt(nextArticleValues[aKey], 10) > 0;
+            })
+          );
+          if (hasArticleData) articleExpand.add(articleKey(division.name, model));
+        }
+      }
+      setExpandedArticles(articleExpand);
+    }
+
     setError("");
     setMessage("");
   }, [
@@ -150,7 +229,33 @@ export function TargetEntryPanel({
     modelAllocations,
     articleAllocations,
     officesForDivision,
+    readOnly,
   ]);
+
+  const articleMismatchErrors = useMemo(
+    () =>
+      computeArticleMismatches({
+        divisions,
+        salesGroup,
+        expandedArticles,
+        values,
+        articleValues,
+        officesForDivision,
+      }),
+    [divisions, salesGroup, expandedArticles, values, articleValues, officesForDivision]
+  );
+
+  const mismatchLookup = useMemo(() => {
+    const set = new Set();
+    for (const e of articleMismatchErrors) {
+      set.add(`${e.division}::${e.model}::${e.officeName}`);
+    }
+    return set;
+  }, [articleMismatchErrors]);
+
+  function isCellMismatch(divisionName, model, officeName) {
+    return mismatchLookup.has(`${divisionName}::${model}::${officeName}`);
+  }
 
   const total = useMemo(
     () => Object.values(values).reduce((sum, v) => sum + (parseInt(v, 10) || 0), 0),
@@ -192,53 +297,16 @@ export function TargetEntryPanel({
     setArticleValues((prev) => ({ ...prev, [key]: value }));
   }
 
-  async function saveCell(division, model, officeName, units) {
-    const key = rowKey(model, officeName);
-    const existingId = recordIds[key];
-    const payload = {
-      planning_period_id: plan.id,
-      brand: division.name,
-      sales_group: salesGroup.name,
-      model,
-      sales_office: officeName,
-      target_units: units,
-    };
-
-    if (existingId) {
-      const res = await fetch("/api/allocations", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "targets",
-          id: existingId,
-          periodId: plan.id,
-          data: { target_units: units },
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to update target");
-      return existingId;
-    }
-
-    if (units === 0) return null;
-
-    const res = await fetch("/api/allocations", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type: "targets",
-        periodId: plan.id,
-        data: payload,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Failed to save target");
-    return data.data?.id || null;
-  }
-
   async function handleSave(goToSubmit = false) {
     if (!salesGroup) {
       setError("Select a Sales Group first.");
+      return;
+    }
+
+    if (articleMismatchErrors.length > 0) {
+      setError(
+        `Article totals must match model totals for ${articleMismatchErrors.length} cell(s). Fix the highlighted rows before saving.`
+      );
       return;
     }
 
@@ -247,8 +315,8 @@ export function TargetEntryPanel({
     setMessage("");
 
     try {
-      const nextIds = { ...recordIds };
-      const savedTargetIds = [];
+      const targetPayload = [];
+      const articlePayload = [];
 
       for (const division of divisions) {
         const models = getModels(division, salesGroup);
@@ -262,52 +330,72 @@ export function TargetEntryPanel({
             if (Number.isNaN(units) || units < 0) {
               throw new Error(`Invalid target for ${division.name} ${model}`);
             }
-            if (!nextIds[key] && units === 0) continue;
-            const id = await saveCell(division, model, office.name, units);
-            if (id) {
-              nextIds[key] = id;
-              if (units > 0) savedTargetIds.push(id);
-            }
-          }
-        }
-      }
+            if (!recordIds[key] && units === 0) continue;
 
-      setRecordIds(nextIds);
+            targetPayload.push({
+              brand: division.name,
+              sales_group: salesGroup.name,
+              model,
+              sales_office: office.name,
+              target_units: units,
+            });
 
-      const articlePayload = [];
-      for (const division of divisions) {
-        const models = getModels(division, salesGroup);
-        const divOffices = officesForDivision(division);
-
-        for (const model of models) {
-          const articles = getArticleCodesForModel(division.name, model);
-          if (!expandedArticles.has(articleKey(division.name, model))) continue;
-
-          for (const office of divOffices) {
-            const targetId = nextIds[rowKey(model, office.name)];
-            if (!targetId) continue;
-
-            for (const code of articles) {
-              const aKey = rowKey(model, office.name, code);
-              const raw = articleValues[aKey];
-              const units = raw === "" || raw === undefined ? 0 : parseInt(raw, 10);
-              if (units > 0) {
-                articlePayload.push({ targetId, articleCode: code, units });
+            if (expandedArticles.has(articleKey(division.name, model))) {
+              const articles = getArticleCodesForModel(division.name, model);
+              for (const code of articles) {
+                const aKey = rowKey(model, office.name, code);
+                const aRaw = articleValues[aKey];
+                const aUnits = aRaw === "" || aRaw === undefined ? 0 : parseInt(aRaw, 10);
+                if (aUnits > 0) {
+                  articlePayload.push({
+                    brand: division.name,
+                    sales_group: salesGroup.name,
+                    model,
+                    sales_office: office.name,
+                    articleCode: code,
+                    units: aUnits,
+                  });
+                }
               }
             }
           }
         }
       }
 
-      const syncRes = await fetch("/api/plans/sync-allocations", {
+      if (
+        targetPayload.length === 0 ||
+        targetPayload.every((t) => !t.target_units)
+      ) {
+        throw new Error("Enter at least one model target greater than 0 before saving.");
+      }
+
+      const saveRes = await fetch("/api/plans/save-grid", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ periodId: plan.id, articles: articlePayload }),
+        body: JSON.stringify({
+          periodId: plan.id,
+          targets: targetPayload,
+          articles: articlePayload,
+        }),
       });
-      const syncData = await syncRes.json();
-      if (!syncRes.ok) throw new Error(syncData.error || "Failed to sync allocations");
+      const saveData = await saveRes.json();
+      if (!saveRes.ok) throw new Error(saveData.error || "Failed to save plan");
 
-      setMessage("Plan saved successfully.");
+      const nextIds = { ...recordIds };
+      for (const row of targetPayload) {
+        const cellKey = `${row.brand}::${row.sales_group}::${row.model}::${row.sales_office || ""}`;
+        const id = saveData.idByKey?.[cellKey];
+        const key = rowKey(row.model, row.sales_office);
+        if (id) nextIds[key] = id;
+        else if (row.target_units <= 0) delete nextIds[key];
+      }
+      setRecordIds(nextIds);
+
+      setMessage(
+        `Plan saved (${saveData.targetCount || 0} model line${
+          (saveData.targetCount || 0) === 1 ? "" : "s"
+        }).`
+      );
       router.refresh();
 
       if (goToSubmit) {
@@ -328,26 +416,34 @@ export function TargetEntryPanel({
         <div className="min-w-[160px] space-y-1">
           <div className="flex items-center justify-between gap-2">
             <Label className="text-xs text-slate-500">Month</Label>
-            <button
-              type="button"
-              onClick={() => setCreateOpen(true)}
-              className="inline-flex items-center gap-0.5 text-[11px] text-slate-500 underline-offset-2 hover:underline"
-            >
-              <Plus className="h-3 w-3" />
-              New
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => setCreateOpen(true)}
+                className="inline-flex items-center gap-0.5 text-[11px] text-slate-500 underline-offset-2 hover:underline"
+              >
+                <Plus className="h-3 w-3" />
+                New
+              </button>
+            )}
           </div>
-          <Select
-            value={planPath}
-            onChange={(e) => handleMonthChange(e.target.value)}
-            className="h-9"
-          >
-            {monthOptions.map((p) => (
-              <option key={p.id} value={planSlug(p.month, p.year)}>
-                {formatPeriod(p.month, p.year)}
-              </option>
-            ))}
-          </Select>
+          {readOnly ? (
+            <p className="flex h-9 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-900">
+              {formatPeriod(plan.month, plan.year)}
+            </p>
+          ) : (
+            <Select
+              value={planPath}
+              onChange={(e) => handleMonthChange(e.target.value)}
+              className="h-9"
+            >
+              {monthOptions.map((p) => (
+                <option key={p.id} value={planSlug(p.month, p.year)}>
+                  {formatPeriod(p.month, p.year)}
+                </option>
+              ))}
+            </Select>
+          )}
         </div>
 
         <div className="min-w-[220px] flex-1 space-y-1">
@@ -364,7 +460,7 @@ export function TargetEntryPanel({
           <Select
             value={salesGroupCode}
             onChange={(e) => setSalesGroupCode(e.target.value)}
-            disabled={!editable}
+            disabled={!readOnly && !editable}
             className="h-9"
           >
             {salesGroupOptions.map((g) => (
@@ -376,14 +472,14 @@ export function TargetEntryPanel({
         </div>
 
         <div className="ml-auto flex items-center gap-2 pb-0.5">
-          {editable && (
+          {editable && !readOnly && (
             <>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => handleSave(false)}
-                disabled={saving || !hasGrid}
+                disabled={saving || !hasGrid || articleMismatchErrors.length > 0}
                 className="gap-1.5"
               >
                 <Save className="h-3.5 w-3.5" />
@@ -393,7 +489,7 @@ export function TargetEntryPanel({
                 type="button"
                 size="sm"
                 onClick={() => handleSave(true)}
-                disabled={saving || !hasGrid}
+                disabled={saving || !hasGrid || articleMismatchErrors.length > 0}
                 className="gap-1.5"
               >
                 <Send className="h-3.5 w-3.5" />
@@ -408,6 +504,31 @@ export function TargetEntryPanel({
         <p className={cn("text-sm", error ? "text-red-600" : "text-emerald-700")}>
           {error || message}
         </p>
+      )}
+
+      {articleMismatchErrors.length > 0 && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="font-medium">
+                Article breakdown must match model totals before you can save
+              </p>
+              <ul className="mt-2 space-y-1 text-xs">
+                {articleMismatchErrors.slice(0, 5).map((e) => (
+                  <li key={`${e.division}-${e.model}-${e.officeName}`}>
+                    {e.division} {e.model} / {e.office}: model {e.modelTotal} vs articles{" "}
+                    {e.articleSum} ({e.diff > 0 ? "+" : ""}
+                    {e.diff})
+                  </li>
+                ))}
+                {articleMismatchErrors.length > 5 && (
+                  <li>…and {articleMismatchErrors.length - 5} more</li>
+                )}
+              </ul>
+            </div>
+          </div>
+        </div>
       )}
 
       {!hasGrid && (
@@ -548,7 +669,13 @@ export function TargetEntryPanel({
                         return (
                           <Fragment key={`model-${division.id}-${model}`}>
                             <tr
-                              className={rowIndex % 2 === 0 ? "bg-sky-50/40" : "bg-white"}
+                              className={cn(
+                                rowIndex % 2 === 0 ? "bg-sky-50/40" : "bg-white",
+                                offices.some((office) =>
+                                  divOffices.some((o) => o.name === office.name) &&
+                                  isCellMismatch(division.name, model, office.name)
+                                ) && "bg-red-50/80"
+                              )}
                             >
                               <td className="sticky left-0 z-10 border border-slate-200 bg-inherit px-1 py-1 text-center">
                                 {hasArticles && (
@@ -576,7 +703,7 @@ export function TargetEntryPanel({
                               <td className="sticky left-[136px] z-10 border border-slate-200 bg-inherit px-2 py-1.5">
                                 <div className="flex flex-col gap-0.5">
                                   <span className="font-medium text-slate-900">{model}</span>
-                                  {hasArticles && (
+                                  {hasArticles && !readOnly && (
                                     <select
                                       className="h-6 max-w-[130px] rounded border border-slate-200 bg-white px-1 text-[10px] text-slate-600"
                                       value={showArticles ? "articles" : "model"}
@@ -595,6 +722,9 @@ export function TargetEntryPanel({
                                       <option value="articles">+ Articles (optional)</option>
                                     </select>
                                   )}
+                                  {hasArticles && readOnly && showArticles && (
+                                    <span className="text-[10px] text-amber-700">+ Articles</span>
+                                  )}
                                 </div>
                               </td>
                               {offices.map((office) => {
@@ -603,15 +733,24 @@ export function TargetEntryPanel({
                                 return (
                                   <td key={key} className="border border-slate-200 p-0">
                                     {applies ? (
-                                      <input
-                                        type="text"
-                                        inputMode="numeric"
-                                        className="h-8 w-full bg-transparent px-1 text-center text-sm tabular-nums outline-none focus:bg-amber-50 disabled:cursor-not-allowed"
-                                        value={values[key] ?? ""}
-                                        onChange={(e) => updateCell(key, e.target.value)}
-                                        disabled={!editable}
-                                        aria-label={`${division.name} ${model} / ${office.label}`}
-                                      />
+                                      isLocked ? (
+                                        <div className="flex h-8 items-center justify-center px-1 text-sm tabular-nums text-slate-900">
+                                          {values[key] || ""}
+                                        </div>
+                                      ) : (
+                                        <input
+                                          type="text"
+                                          inputMode="numeric"
+                                          className={cn(
+                                            "h-8 w-full bg-transparent px-1 text-center text-sm tabular-nums outline-none focus:bg-amber-50",
+                                            isCellMismatch(division.name, model, office.name) &&
+                                              "bg-red-100 ring-1 ring-inset ring-red-300"
+                                          )}
+                                          value={values[key] ?? ""}
+                                          onChange={(e) => updateCell(key, e.target.value)}
+                                          aria-label={`${division.name} ${model} / ${office.label}`}
+                                        />
+                                      )
                                     ) : null}
                                   </td>
                                 );
@@ -637,15 +776,24 @@ export function TargetEntryPanel({
                                     return (
                                       <td key={aKey} className="border border-slate-200 p-0">
                                         {applies ? (
-                                          <input
-                                            type="text"
-                                            inputMode="numeric"
-                                            className="h-7 w-full bg-transparent px-1 text-center text-xs tabular-nums outline-none focus:bg-amber-100 disabled:cursor-not-allowed"
-                                            value={articleValues[aKey] ?? ""}
-                                            onChange={(e) => updateArticleCell(aKey, e.target.value)}
-                                            disabled={!editable}
-                                            aria-label={`${model} ${code} / ${office.label}`}
-                                          />
+                                          isLocked ? (
+                                            <div className="flex h-7 items-center justify-center px-1 text-xs tabular-nums text-amber-900">
+                                              {articleValues[aKey] || ""}
+                                            </div>
+                                          ) : (
+                                            <input
+                                              type="text"
+                                              inputMode="numeric"
+                                              className={cn(
+                                                "h-7 w-full bg-transparent px-1 text-center text-xs tabular-nums outline-none focus:bg-amber-100",
+                                                isCellMismatch(division.name, model, office.name) &&
+                                                  "bg-red-100 ring-1 ring-inset ring-red-300"
+                                              )}
+                                              value={articleValues[aKey] ?? ""}
+                                              onChange={(e) => updateArticleCell(aKey, e.target.value)}
+                                              aria-label={`${model} ${code} / ${office.label}`}
+                                            />
+                                          )
                                         ) : null}
                                       </td>
                                     );
@@ -700,7 +848,9 @@ export function TargetEntryPanel({
         </p>
       </div>
 
-      <CreatePlanModal open={createOpen} onClose={() => setCreateOpen(false)} />
+      {!readOnly && (
+        <CreatePlanModal open={createOpen} onClose={() => setCreateOpen(false)} />
+      )}
     </div>
   );
 }

@@ -23,6 +23,9 @@ export default async function DashboardPage() {
   if (current?.role === ROLES.DEMAND_SUPPLY) {
     redirect("/monthly-planning");
   }
+  if (current?.role === ROLES.B2B_DIRECTOR) {
+    redirect("/approvals");
+  }
 
   const user = await requirePageAccess("/dashboard");
 
