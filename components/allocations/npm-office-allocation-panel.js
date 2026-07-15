@@ -423,10 +423,17 @@ export function NpmOfficeAllocationPanel({
       )}
 
       {!hasGrid && (
-        <p className="border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-          No Demand &amp; Supply model targets for this sales group yet. Once D&amp;S submits Brand
-          → Model totals, they appear here for office allocation.
-        </p>
+        <div className="space-y-3 border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
+          <p className="font-medium text-slate-800">Nothing to allocate for this sales group yet</p>
+          <p>
+            National Performance Manager splits <span className="font-medium">model targets</span>{" "}
+            across sales offices. Demand &amp; Supply must first save Brand → Model units (e.g.
+            Corolla 50, Camry 40) for <span className="font-medium">{salesGroup?.name}</span>.
+          </p>
+          <p className="text-xs text-slate-500">
+            Brand-only totals without a model do not appear in this grid.
+          </p>
+        </div>
       )}
 
       {hasGrid && (
