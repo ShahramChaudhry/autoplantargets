@@ -78,8 +78,9 @@ export async function RetailAllocationContent({ plan, user }) {
             Sales Office Allocation — {planLabel(plan.month, plan.year)}
           </CardTitle>
           <p className="text-sm text-slate-500">
-            Split Demand &amp; Supply model totals across sales offices. When a model has articles,
-            allocate at article level — model and brand rows are calculated roll-ups.
+            Split Demand &amp; Supply model totals across sales offices. For models with articles,
+            choose model-level or article-level allocation (one source at a time). Brand rows are
+            calculated roll-ups.
           </p>
         </CardHeader>
         <CardContent>

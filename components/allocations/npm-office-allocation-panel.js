@@ -19,13 +19,18 @@ import {
 } from "@/src/data";
 import { getArticleCodesForModel } from "@/lib/constants";
 import {
+  allocationModeLabel,
   buildLeafSavePayload,
+  clearArticleValuesForModel,
+  clearModelValuesForModel,
   computeAllocationStatus,
+  detectModelAllocationMode,
   effectiveModelOfficeUnits,
+  isArticleOfficeEditable,
+  isModelOfficeEditable,
   modelAllocatedTotal,
   modelHasArticles,
   rollupBrandOfficeUnits,
-  isModelOfficeEditable,
 } from "@/lib/npm-allocation-rollup";
 import { planSlug } from "@/lib/plans";
 import { Save, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
@@ -72,8 +77,8 @@ function findArticleOfficeTarget(targets, brand, salesGroup, model, officeName, 
 
 /**
  * NPM Sales Office Allocation — Brand → Model → Article.
- * Editable leaves only: articles when a model has articles, else model×office.
- * Brand and (when articles exist) model cells are computed read-only roll-ups.
+ * Models with articles: exclusive Model OR Article mode (with confirm to switch).
+ * Brand cells are always calculated roll-ups.
  */
 export function NpmOfficeAllocationPanel({
   plan,
@@ -93,6 +98,7 @@ export function NpmOfficeAllocationPanel({
   const [expandedArticles, setExpandedArticles] = useState(() => new Set());
   const [modelValues, setModelValues] = useState({});
   const [articleValues, setArticleValues] = useState({});
+  const [pendingSwitch, setPendingSwitch] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -150,11 +156,11 @@ export function NpmOfficeAllocationPanel({
         const articleCodes = getArticleCodesForModel(division.name, model);
         const hasArticles = modelHasArticles(articleCodes);
 
+        // Detect stored source: prefer article leaves if any exist for this model
+        let hasStoredArticles = false;
         if (hasArticles) {
-          articleExpand.add(articleRowKey(division.name, model));
           for (const office of divOffices) {
             for (const code of articleCodes) {
-              const aKey = rowKey(model, office.name, code);
               const existing = findArticleOfficeTarget(
                 targets,
                 division.name,
@@ -163,10 +169,39 @@ export function NpmOfficeAllocationPanel({
                 office.name,
                 code
               );
-              nextArticles[aKey] = existing ? String(existing.target_units) : "";
+              if (existing && existing.target_units > 0) {
+                hasStoredArticles = true;
+                break;
+              }
+            }
+            if (hasStoredArticles) break;
+          }
+        }
+
+        if (hasArticles) {
+          articleExpand.add(articleRowKey(division.name, model));
+          for (const office of divOffices) {
+            for (const code of articleCodes) {
+              const aKey = rowKey(model, office.name, code);
+              if (hasStoredArticles) {
+                const existing = findArticleOfficeTarget(
+                  targets,
+                  division.name,
+                  salesGroup.name,
+                  model,
+                  office.name,
+                  code
+                );
+                nextArticles[aKey] = existing ? String(existing.target_units) : "";
+              } else {
+                nextArticles[aKey] = "";
+              }
             }
           }
-        } else {
+        }
+
+        // Model leaves only when not in stored article mode
+        if (!hasStoredArticles) {
           for (const office of divOffices) {
             const key = rowKey(model, office.name);
             const existing = findOfficeTarget(
@@ -185,6 +220,7 @@ export function NpmOfficeAllocationPanel({
     setModelValues(nextModelValues);
     setArticleValues(nextArticles);
     setExpandedArticles(articleExpand);
+    setPendingSwitch(null);
     setError("");
     setMessage("");
   }, [divisions, salesGroup, targets, officesForDivision]);
@@ -243,14 +279,79 @@ export function NpmOfficeAllocationPanel({
     });
   }
 
-  function updateModelCell(key, value) {
+  function requestModelEdit({ division, model, offices: modelOffices, key, value }) {
     if (value !== "" && !/^\d+$/.test(value)) return;
+    const articleCodes = getArticleCodesForModel(division.name, model);
+    const mode = detectModelAllocationMode({
+      articleValues,
+      modelValues,
+      model,
+      offices: modelOffices,
+      articleCodes,
+      rowKeyFn: rowKey,
+    });
+
+    if (mode === "article") {
+      setPendingSwitch({
+        direction: "to-model",
+        divisionName: division.name,
+        model,
+        offices: modelOffices,
+        articleCodes,
+        key,
+        value,
+        message:
+          "Switching to model-level allocation will clear the article allocations.",
+      });
+      return;
+    }
     setModelValues((prev) => ({ ...prev, [key]: value }));
   }
 
-  function updateArticleCell(key, value) {
+  function requestArticleEdit({ division, model, offices: modelOffices, key, value }) {
     if (value !== "" && !/^\d+$/.test(value)) return;
+    const articleCodes = getArticleCodesForModel(division.name, model);
+    const mode = detectModelAllocationMode({
+      articleValues,
+      modelValues,
+      model,
+      offices: modelOffices,
+      articleCodes,
+      rowKeyFn: rowKey,
+    });
+
+    if (mode === "model") {
+      setPendingSwitch({
+        direction: "to-article",
+        divisionName: division.name,
+        model,
+        offices: modelOffices,
+        articleCodes,
+        key,
+        value,
+        message:
+          "Switching to article-level allocation will clear the model-level value.",
+      });
+      return;
+    }
     setArticleValues((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function confirmPendingSwitch() {
+    if (!pendingSwitch) return;
+    const { direction, model, offices: modelOffices, articleCodes, key, value } =
+      pendingSwitch;
+
+    if (direction === "to-model") {
+      setArticleValues((prev) =>
+        clearArticleValuesForModel(prev, model, modelOffices, articleCodes, rowKey)
+      );
+      setModelValues((prev) => ({ ...prev, [key]: value }));
+    } else {
+      setModelValues((prev) => clearModelValuesForModel(prev, model, modelOffices, rowKey));
+      setArticleValues((prev) => ({ ...prev, [key]: value }));
+    }
+    setPendingSwitch(null);
   }
 
   async function handleSave() {
@@ -385,10 +486,34 @@ export function NpmOfficeAllocationPanel({
       </div>
 
       <p className="text-xs text-slate-500">
-        Allocate at article level when a model has articles; model and brand values are calculated
-        roll-ups. Models without articles can be allocated directly by office. Brand cells are never
-        editable.
+        For models with articles, choose either model-level allocation (e.g. Corolla = 50) or
+        article-level allocation (articles sum to the model). Only one source can be active per
+        model. Brand totals are always calculated.
       </p>
+
+      {pendingSwitch && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm shadow-sm">
+          <p className="text-slate-800">
+            <span className="font-medium">
+              {pendingSwitch.divisionName} {pendingSwitch.model}:
+            </span>{" "}
+            {pendingSwitch.message}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setPendingSwitch(null)}
+            >
+              Cancel
+            </Button>
+            <Button type="button" size="sm" onClick={confirmPendingSwitch}>
+              Switch
+            </Button>
+          </div>
+        </div>
+      )}
 
       {(error || message) && (
         <p className={cn("text-sm", error ? "text-red-600" : "text-emerald-700")}>
@@ -577,6 +702,7 @@ export function NpmOfficeAllocationPanel({
                               getArticleCodes: (m) =>
                                 getArticleCodesForModel(division.name, m),
                               rowKeyFn: rowKey,
+                              offices: divOffices,
                             })
                           : 0;
                         return (
@@ -602,6 +728,16 @@ export function NpmOfficeAllocationPanel({
                         const mismatched = mismatchLookup.has(`${division.name}::${model}`);
                         const articles = getArticleCodesForModel(division.name, model);
                         const hasArticles = modelHasArticles(articles);
+                        const mode = detectModelAllocationMode({
+                          articleValues,
+                          modelValues,
+                          model,
+                          offices: divOffices,
+                          articleCodes: articles,
+                          rowKeyFn: rowKey,
+                        });
+                        const modelEditable = isModelOfficeEditable(mode, articles);
+                        const articleEditable = isArticleOfficeEditable(mode, articles);
                         const showArticles =
                           hasArticles &&
                           expandedArticles.has(articleRowKey(division.name, model));
@@ -651,8 +787,18 @@ export function NpmOfficeAllocationPanel({
                               <td className="sticky left-[7.5rem] z-10 min-w-[7rem] border border-slate-200 bg-inherit px-2 py-1.5 font-medium text-slate-900">
                                 {model}
                                 {hasArticles && (
-                                  <span className="mt-0.5 block text-[10px] font-normal text-slate-400">
-                                    {modelAllocated} / {dsTotal} rolled up
+                                  <span
+                                    className={cn(
+                                      "mt-0.5 block text-[10px] font-normal",
+                                      mode === "article"
+                                        ? "text-amber-700"
+                                        : mode === "model"
+                                          ? "text-sky-700"
+                                          : "text-slate-400"
+                                    )}
+                                  >
+                                    {allocationModeLabel(mode)}
+                                    {mode !== "none" ? ` · ${modelAllocated}/${dsTotal}` : ""}
                                   </span>
                                 )}
                               </td>
@@ -670,31 +816,17 @@ export function NpmOfficeAllocationPanel({
                                       officeName: office.name,
                                       articleCodes: articles,
                                       rowKeyFn: rowKey,
+                                      offices: divOffices,
                                     })
                                   : 0;
+                                const showInput = applies && modelEditable && !isLocked;
                                 return (
                                   <td
                                     key={key}
                                     className="min-w-[4.5rem] border border-slate-200 p-0"
                                   >
                                     {applies ? (
-                                      !isModelOfficeEditable(articles) || isLocked ? (
-                                        <div
-                                          className={cn(
-                                            "flex h-8 items-center justify-center text-sm tabular-nums",
-                                            !isModelOfficeEditable(articles)
-                                              ? "bg-slate-50 text-slate-600"
-                                              : "text-slate-800"
-                                          )}
-                                          title={
-                                            !isModelOfficeEditable(articles)
-                                              ? "Calculated from article allocations."
-                                              : undefined
-                                          }
-                                        >
-                                          {display > 0 ? display : ""}
-                                        </div>
-                                      ) : (
+                                      showInput ? (
                                         <input
                                           type="text"
                                           inputMode="numeric"
@@ -705,10 +837,32 @@ export function NpmOfficeAllocationPanel({
                                           )}
                                           value={modelValues[key] ?? ""}
                                           onChange={(e) =>
-                                            updateModelCell(key, e.target.value)
+                                            requestModelEdit({
+                                              division,
+                                              model,
+                                              offices: divOffices,
+                                              key,
+                                              value: e.target.value,
+                                            })
                                           }
                                           aria-label={`${model} / ${getOfficeLabel(office)}`}
                                         />
+                                      ) : (
+                                        <div
+                                          className={cn(
+                                            "flex h-8 items-center justify-center text-sm tabular-nums",
+                                            mode === "article"
+                                              ? "bg-slate-50 text-slate-600"
+                                              : "text-slate-800"
+                                          )}
+                                          title={
+                                            mode === "article"
+                                              ? "Calculated from article allocations."
+                                              : undefined
+                                          }
+                                        >
+                                          {display > 0 ? display : ""}
+                                        </div>
                                       )
                                     ) : null}
                                   </td>
@@ -720,7 +874,10 @@ export function NpmOfficeAllocationPanel({
                               articles.map((code) => (
                                 <tr
                                   key={`${division.id}-${model}-${code}`}
-                                  className="bg-amber-50/30 text-xs"
+                                  className={cn(
+                                    "text-xs",
+                                    articleEditable ? "bg-amber-50/30" : "bg-slate-50/80 opacity-60"
+                                  )}
                                 >
                                   <td className="sticky left-0 z-10 w-8 border border-slate-200 bg-inherit" />
                                   <td className="sticky left-8 z-10 min-w-[6rem] border border-slate-200 bg-inherit px-2 py-1 text-slate-400">
@@ -737,27 +894,35 @@ export function NpmOfficeAllocationPanel({
                                       (o) => o.name === office.name
                                     );
                                     const aKey = rowKey(model, office.name, code);
+                                    const showArticleInput =
+                                      applies && articleEditable && !isLocked;
                                     return (
                                       <td
                                         key={aKey}
                                         className="min-w-[4.5rem] border border-slate-200 p-0"
                                       >
                                         {applies ? (
-                                          isLocked ? (
-                                            <div className="flex h-7 items-center justify-center text-xs tabular-nums text-amber-900">
-                                              {articleValues[aKey] || ""}
-                                            </div>
-                                          ) : (
+                                          showArticleInput ? (
                                             <input
                                               type="text"
                                               inputMode="numeric"
                                               className="h-7 w-full bg-transparent px-1 text-center text-xs tabular-nums outline-none focus:bg-amber-100"
                                               value={articleValues[aKey] ?? ""}
                                               onChange={(e) =>
-                                                updateArticleCell(aKey, e.target.value)
+                                                requestArticleEdit({
+                                                  division,
+                                                  model,
+                                                  offices: divOffices,
+                                                  key: aKey,
+                                                  value: e.target.value,
+                                                })
                                               }
                                               aria-label={`${code} / ${getOfficeLabel(office)}`}
                                             />
+                                          ) : (
+                                            <div className="flex h-7 items-center justify-center text-xs tabular-nums text-slate-400">
+                                              {articleValues[aKey] || ""}
+                                            </div>
                                           )
                                         ) : null}
                                       </td>

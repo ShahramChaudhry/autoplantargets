@@ -86,11 +86,12 @@ async function upsertLeaf(supabase, periodId, row, savedIds) {
 /**
  * Delete stale model-office rows (article_code null) when a model now uses article leaves.
  */
+/**
+ * Delete stale model-office rows when a model is saved in article mode.
+ */
 async function deleteStaleModelOfficeRows(supabase, periodId, salesGroup, articleLeaves) {
-  const modelsWithArticles = new Set(
-    articleLeaves.map((r) => `${r.brand}::${r.model}`)
-  );
-  if (modelsWithArticles.size === 0) return;
+  const modelsInPayload = new Set(articleLeaves.map((r) => `${r.brand}::${r.model}`));
+  if (modelsInPayload.size === 0) return;
 
   const { data: rows } = await supabase
     .from("targets")
@@ -101,7 +102,28 @@ async function deleteStaleModelOfficeRows(supabase, periodId, salesGroup, articl
   for (const row of rows || []) {
     if (!row.sales_office) continue;
     if (!isBlankArticle(row.article_code)) continue;
-    if (modelsWithArticles.has(`${row.brand}::${row.model}`)) {
+    if (modelsInPayload.has(`${row.brand}::${row.model}`)) {
+      await supabase.from("targets").delete().eq("id", row.id);
+    }
+  }
+}
+
+/**
+ * Delete article leaves when a model is saved in model mode.
+ */
+async function deleteArticleLeavesForModels(supabase, periodId, salesGroup, modelLeaves) {
+  const modelsInPayload = new Set(modelLeaves.map((r) => `${r.brand}::${r.model}`));
+  if (modelsInPayload.size === 0) return;
+
+  const { data: rows } = await supabase
+    .from("targets")
+    .select("id, brand, model, sales_office, article_code")
+    .eq("planning_period_id", periodId)
+    .eq("sales_group", salesGroup);
+
+  for (const row of rows || []) {
+    if (isBlankArticle(row.article_code)) continue;
+    if (modelsInPayload.has(`${row.brand}::${row.model}`)) {
       await supabase.from("targets").delete().eq("id", row.id);
     }
   }
@@ -141,33 +163,36 @@ async function pruneMissingArticleLeaves(supabase, periodId, salesGroup, article
 
 function validateAgainstDs(dsTotals, articles, models) {
   const allocatedByModel = new Map();
+  const articleModels = new Set();
+  const modelModels = new Set();
 
   for (const row of articles) {
     const key = `${row.brand}::${row.model}`;
+    const units = Number(row.target_units) || 0;
     const codes = getArticleCodesForModel(row.brand, row.model);
     if (!codes.includes(row.article_code)) {
       return {
         error: `Invalid article ${row.article_code} for ${row.brand} ${row.model}.`,
       };
     }
-    allocatedByModel.set(
-      key,
-      (allocatedByModel.get(key) || 0) + (Number(row.target_units) || 0)
-    );
+    if (units > 0) articleModels.add(key);
+    allocatedByModel.set(key, (allocatedByModel.get(key) || 0) + units);
   }
 
   for (const row of models) {
     const key = `${row.brand}::${row.model}`;
-    const codes = getArticleCodesForModel(row.brand, row.model);
-    if (codes.length > 0) {
+    const units = Number(row.target_units) || 0;
+    if (units > 0) modelModels.add(key);
+    allocatedByModel.set(key, (allocatedByModel.get(key) || 0) + units);
+  }
+
+  for (const key of articleModels) {
+    if (modelModels.has(key)) {
+      const [brand, model] = key.split("::");
       return {
-        error: `${row.brand} ${row.model} has articles; allocate at article level only.`,
+        error: `${brand} ${model}: cannot save both model-level and article-level allocations.`,
       };
     }
-    allocatedByModel.set(
-      key,
-      (allocatedByModel.get(key) || 0) + (Number(row.target_units) || 0)
-    );
   }
 
   for (const [key, allocated] of allocatedByModel) {
@@ -180,7 +205,6 @@ function validateAgainstDs(dsTotals, articles, models) {
     }
   }
 
-  // Brand roll-up must not exceed sum of model D&S (redundant if per-model OK, but catch payload gaps)
   const brandAllocated = new Map();
   const brandDs = new Map();
   for (const [key, ds] of dsTotals) {
@@ -204,10 +228,10 @@ function validateAgainstDs(dsTotals, articles, models) {
 }
 
 /**
- * NPM saves leaf office allocations only:
- * - article×office when a model has articles
- * - model×office (article_code null) when a model has no articles
- * Brand/model parents with articles are never stored as user input; model totals are derived for audit only.
+ * NPM saves exclusive leaf office allocations:
+ * - article mode → article×office rows (article_code set); model×office cleared
+ * - model mode → model×office rows (article_code null); article×office cleared
+ * Brand values are never persisted as user input.
  */
 export async function POST(request) {
   const user = await getCurrentUser();
@@ -289,6 +313,7 @@ export async function POST(request) {
     const savedIds = [];
 
     await deleteStaleModelOfficeRows(supabase, periodId, sg, articles);
+    await deleteArticleLeavesForModels(supabase, periodId, sg, models);
     await pruneMissingArticleLeaves(supabase, periodId, sg, articles);
 
     for (const row of articles) {
