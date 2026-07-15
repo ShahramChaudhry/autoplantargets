@@ -18,6 +18,15 @@ import {
   rowKey,
 } from "@/src/data";
 import { getArticleCodesForModel } from "@/lib/constants";
+import {
+  buildLeafSavePayload,
+  computeAllocationStatus,
+  effectiveModelOfficeUnits,
+  modelAllocatedTotal,
+  modelHasArticles,
+  rollupBrandOfficeUnits,
+  isModelOfficeEditable,
+} from "@/lib/npm-allocation-rollup";
 import { planSlug } from "@/lib/plans";
 import { Save, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
 
@@ -25,7 +34,7 @@ function articleRowKey(divisionName, model) {
   return `${divisionName}::${model}`;
 }
 
-/** D&S model total = targets with no sales_office. */
+/** D&S model total = targets with no sales_office and no article_code. */
 function dsModelTotal(targets, brand, salesGroup, model) {
   return (targets || [])
     .filter(
@@ -33,7 +42,8 @@ function dsModelTotal(targets, brand, salesGroup, model) {
         t.brand === brand &&
         t.sales_group === salesGroup &&
         t.model === model &&
-        !t.sales_office
+        !t.sales_office &&
+        !t.article_code
     )
     .reduce((sum, t) => sum + (t.target_units || 0), 0);
 }
@@ -44,19 +54,30 @@ function findOfficeTarget(targets, brand, salesGroup, model, officeName) {
       t.brand === brand &&
       t.sales_group === salesGroup &&
       t.model === model &&
-      t.sales_office === officeName
+      t.sales_office === officeName &&
+      !t.article_code
+  );
+}
+
+function findArticleOfficeTarget(targets, brand, salesGroup, model, officeName, articleCode) {
+  return (targets || []).find(
+    (t) =>
+      t.brand === brand &&
+      t.sales_group === salesGroup &&
+      t.model === model &&
+      t.sales_office === officeName &&
+      t.article_code === articleCode
   );
 }
 
 /**
- * NPM / Retail Head grid — same Model × Sales Office layout as the original D&S grid.
- * Cells are editable office splits; model totals come from Demand & Supply.
+ * NPM Sales Office Allocation — Brand → Model → Article.
+ * Editable leaves only: articles when a model has articles, else model×office.
+ * Brand and (when articles exist) model cells are computed read-only roll-ups.
  */
 export function NpmOfficeAllocationPanel({
   plan,
   targets = [],
-  modelAllocations = [],
-  articleAllocations = [],
   periods = [],
   editable = true,
   user = null,
@@ -70,8 +91,7 @@ export function NpmOfficeAllocationPanel({
     () => new Set(divisions.map((d) => d.id))
   );
   const [expandedArticles, setExpandedArticles] = useState(() => new Set());
-  const [values, setValues] = useState({});
-  const [recordIds, setRecordIds] = useState({});
+  const [modelValues, setModelValues] = useState({});
   const [articleValues, setArticleValues] = useState({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -100,7 +120,7 @@ export function NpmOfficeAllocationPanel({
 
   useEffect(() => {
     if (targets.length === 0) return;
-    const withModels = targets.find((t) => t.model && !t.sales_office);
+    const withModels = targets.find((t) => t.model && !t.sales_office && !t.article_code);
     const sg = getSalesGroupByName(withModels?.sales_group || targets[0].sales_group);
     if (sg) setSalesGroupCode(sg.code);
   }, [targets]);
@@ -115,14 +135,9 @@ export function NpmOfficeAllocationPanel({
   useEffect(() => {
     if (!salesGroup) return;
 
-    const nextValues = {};
-    const nextIds = {};
+    const nextModelValues = {};
     const nextArticles = {};
     const articleExpand = new Set();
-
-    const modelAllocByTargetId = Object.fromEntries(
-      modelAllocations.map((m) => [m.target_id, m])
-    );
 
     for (const division of divisions) {
       const models = getModels(division, salesGroup);
@@ -132,190 +147,86 @@ export function NpmOfficeAllocationPanel({
         const dsTotal = dsModelTotal(targets, division.name, salesGroup.name, model);
         if (dsTotal <= 0) continue;
 
-        for (const office of divOffices) {
-          const key = rowKey(model, office.name);
-          const existing = findOfficeTarget(
-            targets,
-            division.name,
-            salesGroup.name,
-            model,
-            office.name
-          );
-          nextValues[key] = existing ? String(existing.target_units) : "";
-          if (existing) nextIds[key] = existing.id;
-        }
+        const articleCodes = getArticleCodesForModel(division.name, model);
+        const hasArticles = modelHasArticles(articleCodes);
 
-        // Articles: show when D&S defined article allocs on the model-level target
-        const dsTarget = (targets || []).find(
-          (t) =>
-            t.brand === division.name &&
-            t.sales_group === salesGroup.name &&
-            t.model === model &&
-            !t.sales_office
-        );
-        const modelAlloc = dsTarget ? modelAllocByTargetId[dsTarget.id] : null;
-        if (modelAlloc) {
-          const arts = articleAllocations.filter(
-            (a) => a.model_allocation_id === modelAlloc.id
-          );
-          if (arts.length) {
-            articleExpand.add(articleRowKey(division.name, model));
-            for (const office of divOffices) {
-              for (const art of arts) {
-                // Office-level article cells start empty; proportion optional later
-                const aKey = rowKey(model, office.name, art.article_code);
-                if (nextArticles[aKey] === undefined) nextArticles[aKey] = "";
-              }
+        if (hasArticles) {
+          articleExpand.add(articleRowKey(division.name, model));
+          for (const office of divOffices) {
+            for (const code of articleCodes) {
+              const aKey = rowKey(model, office.name, code);
+              const existing = findArticleOfficeTarget(
+                targets,
+                division.name,
+                salesGroup.name,
+                model,
+                office.name,
+                code
+              );
+              nextArticles[aKey] = existing ? String(existing.target_units) : "";
             }
+          }
+        } else {
+          for (const office of divOffices) {
+            const key = rowKey(model, office.name);
+            const existing = findOfficeTarget(
+              targets,
+              division.name,
+              salesGroup.name,
+              model,
+              office.name
+            );
+            nextModelValues[key] = existing ? String(existing.target_units) : "";
           }
         }
       }
     }
 
-    setValues(nextValues);
-    setRecordIds(nextIds);
+    setModelValues(nextModelValues);
     setArticleValues(nextArticles);
     setExpandedArticles(articleExpand);
     setError("");
     setMessage("");
-  }, [
-    divisions,
-    salesGroup,
-    targets,
-    modelAllocations,
-    articleAllocations,
-    officesForDivision,
-  ]);
+  }, [divisions, salesGroup, targets, officesForDivision]);
 
-  const mismatchErrors = useMemo(() => {
-    if (!salesGroup) return [];
-    const errors = [];
-    for (const division of divisions) {
-      const models = getModels(division, salesGroup);
-      const divOffices = officesForDivision(division);
-      for (const model of models) {
-        const dsTotal = dsModelTotal(targets, division.name, salesGroup.name, model);
-        if (dsTotal <= 0) continue;
-
-        let officeSum = 0;
-        for (const office of divOffices) {
-          officeSum += parseInt(values[rowKey(model, office.name)], 10) || 0;
-        }
-
-        // Offices may not exceed the model D&S total (partial under is OK)
-        if (officeSum > dsTotal) {
-          errors.push({
-            type: "office_over",
-            division: division.name,
-            model,
-            dsTotal,
-            officeSum,
-            diff: officeSum - dsTotal,
-          });
-        }
-
-        // Articles under a model must add up to that model's D&S total
-        if (expandedArticles.has(articleRowKey(division.name, model))) {
-          const articles = getArticleCodesForModel(division.name, model);
-          let articleSum = 0;
-          let hasArticleValue = false;
-          for (const code of articles) {
-            for (const office of divOffices) {
-              const units =
-                parseInt(articleValues[rowKey(model, office.name, code)], 10) || 0;
-              if (units > 0) hasArticleValue = true;
-              articleSum += units;
-            }
-          }
-          if (hasArticleValue && articleSum !== dsTotal) {
-            errors.push({
-              type: "article_mismatch",
-              division: division.name,
-              model,
-              dsTotal,
-              articleSum,
-              diff: articleSum - dsTotal,
-            });
-          }
-        }
-      }
+  const allocationStatus = useMemo(() => {
+    if (!salesGroup) {
+      return {
+        errors: [],
+        remainingModels: [],
+        brandSummaries: [],
+        isFullyAllocated: false,
+      };
     }
-    return errors;
+    return computeAllocationStatus({
+      divisions,
+      salesGroupName: salesGroup.name,
+      targets,
+      articleValues,
+      modelValues,
+      officesForDivision,
+      getModelsForDivision: (division) => getModels(division, salesGroup),
+      getArticleCodesForModel: (brand, model) => getArticleCodesForModel(brand, model),
+      dsModelTotalFn: dsModelTotal,
+      rowKeyFn: rowKey,
+    });
   }, [
     divisions,
     salesGroup,
     targets,
-    values,
     articleValues,
-    expandedArticles,
+    modelValues,
     officesForDivision,
   ]);
-
-  const remainingByModel = useMemo(() => {
-    if (!salesGroup) return [];
-    const rows = [];
-    for (const division of divisions) {
-      const models = getModels(division, salesGroup);
-      const divOffices = officesForDivision(division);
-      for (const model of models) {
-        const dsTotal = dsModelTotal(targets, division.name, salesGroup.name, model);
-        if (dsTotal <= 0) continue;
-        let officeSum = 0;
-        for (const office of divOffices) {
-          officeSum += parseInt(values[rowKey(model, office.name)], 10) || 0;
-        }
-        if (officeSum > 0 && officeSum < dsTotal) {
-          rows.push({
-            division: division.name,
-            model,
-            dsTotal,
-            officeSum,
-            remaining: dsTotal - officeSum,
-          });
-        }
-      }
-    }
-    return rows;
-  }, [divisions, salesGroup, targets, values, officesForDivision]);
-
-  const brandRollups = useMemo(() => {
-    if (!salesGroup) return [];
-    return divisions
-      .map((division) => {
-        const models = getModels(division, salesGroup).filter(
-          (model) => dsModelTotal(targets, division.name, salesGroup.name, model) > 0
-        );
-        if (models.length === 0) return null;
-        const dsBrand = models.reduce(
-          (s, model) => s + dsModelTotal(targets, division.name, salesGroup.name, model),
-          0
-        );
-        const divOffices = officesForDivision(division);
-        const allocatedBrand = models.reduce((s, model) => {
-          return (
-            s +
-            divOffices.reduce(
-              (os, office) =>
-                os + (parseInt(values[rowKey(model, office.name)], 10) || 0),
-              0
-            )
-          );
-        }, 0);
-        return {
-          division: division.name,
-          dsBrand,
-          allocatedBrand,
-          remaining: dsBrand - allocatedBrand,
-        };
-      })
-      .filter(Boolean);
-  }, [divisions, salesGroup, targets, values, officesForDivision]);
 
   const mismatchLookup = useMemo(() => {
     const set = new Set();
-    for (const e of mismatchErrors) set.add(`${e.division}::${e.model}`);
+    for (const e of allocationStatus.errors) {
+      if (e.model) set.add(`${e.division}::${e.model}`);
+      else if (e.division) set.add(e.division);
+    }
     return set;
-  }, [mismatchErrors]);
+  }, [allocationStatus.errors]);
 
   function handleMonthChange(slug) {
     if (slug && slug !== planPath) {
@@ -332,9 +243,9 @@ export function NpmOfficeAllocationPanel({
     });
   }
 
-  function updateCell(key, value) {
+  function updateModelCell(key, value) {
     if (value !== "" && !/^\d+$/.test(value)) return;
-    setValues((prev) => ({ ...prev, [key]: value }));
+    setModelValues((prev) => ({ ...prev, [key]: value }));
   }
 
   function updateArticleCell(key, value) {
@@ -347,9 +258,9 @@ export function NpmOfficeAllocationPanel({
       setError("Select a Sales Group first.");
       return;
     }
-    if (mismatchErrors.length > 0) {
+    if (allocationStatus.errors.length > 0) {
       setError(
-        `Office totals exceed Demand & Supply model totals for ${mismatchErrors.length} model(s).`
+        `Fix over-allocations for ${allocationStatus.errors.length} item(s) before saving.`
       );
       return;
     }
@@ -359,35 +270,18 @@ export function NpmOfficeAllocationPanel({
     setMessage("");
 
     try {
-      const targetPayload = [];
-
-      for (const division of divisions) {
-        const models = getModels(division, salesGroup);
-        const divOffices = officesForDivision(division);
-
-        for (const model of models) {
-          const dsTotal = dsModelTotal(targets, division.name, salesGroup.name, model);
-          if (dsTotal <= 0) continue;
-
-          for (const office of divOffices) {
-            const key = rowKey(model, office.name);
-            const raw = values[key];
-            const units = raw === "" || raw === undefined ? 0 : parseInt(raw, 10);
-            if (Number.isNaN(units) || units < 0) {
-              throw new Error(`Invalid units for ${model} / ${office.label}`);
-            }
-            if (!recordIds[key] && units === 0) continue;
-
-            targetPayload.push({
-              brand: division.name,
-              sales_group: salesGroup.name,
-              model,
-              sales_office: office.name,
-              target_units: units,
-            });
-          }
-        }
-      }
+      const { articles, models } = buildLeafSavePayload({
+        divisions,
+        salesGroupName: salesGroup.name,
+        targets,
+        articleValues,
+        modelValues,
+        officesForDivision,
+        getModelsForDivision: (division) => getModels(division, salesGroup),
+        getArticleCodesForModel: (brand, model) => getArticleCodesForModel(brand, model),
+        dsModelTotalFn: dsModelTotal,
+        rowKeyFn: rowKey,
+      });
 
       const res = await fetch("/api/plans/save-npm-grid", {
         method: "POST",
@@ -395,7 +289,8 @@ export function NpmOfficeAllocationPanel({
         body: JSON.stringify({
           periodId: plan.id,
           salesGroup: salesGroup.name,
-          targets: targetPayload,
+          articles,
+          models,
         }),
       });
       const data = await res.json();
@@ -427,6 +322,9 @@ export function NpmOfficeAllocationPanel({
   }, [divisions, salesGroup, targets]);
 
   const hasGrid = salesGroup && modelsWithDs.length > 0 && offices.length > 0;
+  const remainingModels = allocationStatus.remainingModels;
+  const brandRollups = allocationStatus.brandSummaries;
+  const overErrors = allocationStatus.errors;
 
   return (
     <div className="space-y-4">
@@ -477,7 +375,7 @@ export function NpmOfficeAllocationPanel({
             type="button"
             size="sm"
             onClick={handleSave}
-            disabled={saving || !hasGrid || mismatchErrors.length > 0}
+            disabled={saving || !hasGrid || overErrors.length > 0}
             className="gap-1.5"
           >
             <Save className="h-3.5 w-3.5" />
@@ -487,10 +385,9 @@ export function NpmOfficeAllocationPanel({
       </div>
 
       <p className="text-xs text-slate-500">
-        Hierarchical totals: models under a brand add up to the brand D&amp;S total (e.g. Corolla +
-        Camry + Yaris = Toyota 120). Office columns for each model must equal that model&apos;s
-        D&amp;S total when fully allocated. If you use articles, those articles must add up to the
-        model total. Partial office fills are OK to save; going over is blocked.
+        Allocate at article level when a model has articles; model and brand values are calculated
+        roll-ups. Models without articles can be allocated directly by office. Brand cells are never
+        editable.
       </p>
 
       {(error || message) && (
@@ -499,22 +396,21 @@ export function NpmOfficeAllocationPanel({
         </p>
       )}
 
-      {mismatchErrors.length > 0 && (
+      {overErrors.length > 0 && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           <div className="flex items-start gap-2">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <div className="space-y-1">
-              {mismatchErrors.slice(0, 8).map((e) => (
-                <p key={`${e.type}-${e.division}-${e.model}`} className="text-xs">
-                  {e.type === "article_mismatch" ? (
+              {overErrors.slice(0, 8).map((e) => (
+                <p key={`${e.type}-${e.division}-${e.model || ""}`} className="text-xs">
+                  {e.type === "brand_over" ? (
                     <>
-                      {e.division} {e.model} articles: must add to model {e.dsTotal}, currently{" "}
-                      {e.articleSum} ({e.diff > 0 ? "+" : ""}
+                      {e.division} brand: allocated {e.allocated} exceeds D&amp;S {e.dsTotal} (+
                       {e.diff})
                     </>
                   ) : (
                     <>
-                      {e.division} {e.model}: offices {e.officeSum} exceed D&amp;S {e.dsTotal} (+
+                      {e.division} {e.model}: allocated {e.allocated} exceeds D&amp;S {e.dsTotal} (+
                       {e.diff})
                     </>
                   )}
@@ -525,13 +421,13 @@ export function NpmOfficeAllocationPanel({
         </div>
       )}
 
-      {remainingByModel.length > 0 && mismatchErrors.length === 0 && (
+      {remainingModels.length > 0 && overErrors.length === 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <p className="font-medium">Still remaining to allocate</p>
           <ul className="mt-1 space-y-0.5 text-xs">
-            {remainingByModel.slice(0, 6).map((r) => (
+            {remainingModels.slice(0, 8).map((r) => (
               <li key={`${r.division}-${r.model}`}>
-                {r.division} {r.model}: {r.officeSum} of {r.dsTotal} ({r.remaining} left)
+                {r.division} {r.model}: {r.allocated} of {r.dsTotal} ({r.remaining} left)
               </li>
             ))}
           </ul>
@@ -554,11 +450,8 @@ export function NpmOfficeAllocationPanel({
           <p className="font-medium text-slate-800">Nothing to allocate for this sales group yet</p>
           <p>
             National Performance Manager splits <span className="font-medium">model targets</span>{" "}
-            across sales offices. Demand &amp; Supply must first save Brand → Model units (e.g.
-            Corolla 50, Camry 40) for <span className="font-medium">{salesGroup?.name}</span>.
-          </p>
-          <p className="text-xs text-slate-500">
-            Brand-only totals without a model do not appear in this grid.
+            across sales offices. Demand &amp; Supply must first save Brand → Model units for{" "}
+            <span className="font-medium">{salesGroup?.name}</span>.
           </p>
         </div>
       )}
@@ -654,7 +547,7 @@ export function NpmOfficeAllocationPanel({
                 return (
                   <Fragment key={division.id}>
                     <tr
-                      className="cursor-pointer bg-slate-50 font-semibold hover:bg-slate-100"
+                      className="cursor-pointer bg-slate-100/90 font-semibold hover:bg-slate-100"
                       onClick={() => toggleDivision(division.id)}
                     >
                       <td
@@ -676,15 +569,21 @@ export function NpmOfficeAllocationPanel({
                       {offices.map((office) => {
                         const applies = divOffices.some((o) => o.name === office.name);
                         const colTotal = applies
-                          ? models.reduce((sum, model) => {
-                              const raw = values[rowKey(model, office.name)];
-                              return sum + (parseInt(raw, 10) || 0);
-                            }, 0)
+                          ? rollupBrandOfficeUnits({
+                              articleValues,
+                              modelValues,
+                              models,
+                              officeName: office.name,
+                              getArticleCodes: (m) =>
+                                getArticleCodesForModel(division.name, m),
+                              rowKeyFn: rowKey,
+                            })
                           : 0;
                         return (
                           <td
                             key={`div-${division.id}-${office.name}`}
-                            className="border border-slate-300 px-1 py-2 text-center tabular-nums text-slate-700"
+                            className="border border-slate-300 bg-slate-100/80 px-1 py-2 text-center tabular-nums text-slate-600"
+                            title="Calculated from model allocations."
                           >
                             {applies && colTotal > 0 ? colTotal : ""}
                           </td>
@@ -702,10 +601,18 @@ export function NpmOfficeAllocationPanel({
                         );
                         const mismatched = mismatchLookup.has(`${division.name}::${model}`);
                         const articles = getArticleCodesForModel(division.name, model);
-                        const showArticles = expandedArticles.has(
-                          articleRowKey(division.name, model)
-                        );
-                        const hasArticleCodes = articles.length > 0 && showArticles;
+                        const hasArticles = modelHasArticles(articles);
+                        const showArticles =
+                          hasArticles &&
+                          expandedArticles.has(articleRowKey(division.name, model));
+                        const modelAllocated = modelAllocatedTotal({
+                          articleValues,
+                          modelValues,
+                          model,
+                          offices: divOffices,
+                          articleCodes: articles,
+                          rowKeyFn: rowKey,
+                        });
 
                         return (
                           <Fragment key={`${division.id}-${model}`}>
@@ -716,7 +623,7 @@ export function NpmOfficeAllocationPanel({
                               )}
                             >
                               <td className="sticky left-0 z-10 w-8 border border-slate-200 bg-inherit px-1 text-center">
-                                {articles.length > 0 && (
+                                {hasArticles && (
                                   <button
                                     type="button"
                                     className="rounded p-0.5 text-slate-500 hover:bg-slate-100"
@@ -743,6 +650,11 @@ export function NpmOfficeAllocationPanel({
                               </td>
                               <td className="sticky left-[7.5rem] z-10 min-w-[7rem] border border-slate-200 bg-inherit px-2 py-1.5 font-medium text-slate-900">
                                 {model}
+                                {hasArticles && (
+                                  <span className="mt-0.5 block text-[10px] font-normal text-slate-400">
+                                    {modelAllocated} / {dsTotal} rolled up
+                                  </span>
+                                )}
                               </td>
                               <td className="sticky left-[14.5rem] z-10 min-w-[5rem] border border-slate-200 bg-inherit px-2 py-1.5 text-center font-semibold tabular-nums text-slate-800">
                                 {dsTotal}
@@ -750,12 +662,37 @@ export function NpmOfficeAllocationPanel({
                               {offices.map((office) => {
                                 const applies = divOffices.some((o) => o.name === office.name);
                                 const key = rowKey(model, office.name);
+                                const display = applies
+                                  ? effectiveModelOfficeUnits({
+                                      articleValues,
+                                      modelValues,
+                                      model,
+                                      officeName: office.name,
+                                      articleCodes: articles,
+                                      rowKeyFn: rowKey,
+                                    })
+                                  : 0;
                                 return (
-                                  <td key={key} className="min-w-[4.5rem] border border-slate-200 p-0">
+                                  <td
+                                    key={key}
+                                    className="min-w-[4.5rem] border border-slate-200 p-0"
+                                  >
                                     {applies ? (
-                                      isLocked ? (
-                                        <div className="flex h-8 items-center justify-center text-sm tabular-nums">
-                                          {values[key] || ""}
+                                      !isModelOfficeEditable(articles) || isLocked ? (
+                                        <div
+                                          className={cn(
+                                            "flex h-8 items-center justify-center text-sm tabular-nums",
+                                            !isModelOfficeEditable(articles)
+                                              ? "bg-slate-50 text-slate-600"
+                                              : "text-slate-800"
+                                          )}
+                                          title={
+                                            !isModelOfficeEditable(articles)
+                                              ? "Calculated from article allocations."
+                                              : undefined
+                                          }
+                                        >
+                                          {display > 0 ? display : ""}
                                         </div>
                                       ) : (
                                         <input
@@ -766,8 +703,10 @@ export function NpmOfficeAllocationPanel({
                                             mismatched &&
                                               "bg-red-100 ring-1 ring-inset ring-red-300"
                                           )}
-                                          value={values[key] ?? ""}
-                                          onChange={(e) => updateCell(key, e.target.value)}
+                                          value={modelValues[key] ?? ""}
+                                          onChange={(e) =>
+                                            updateModelCell(key, e.target.value)
+                                          }
                                           aria-label={`${model} / ${getOfficeLabel(office)}`}
                                         />
                                       )
@@ -777,7 +716,7 @@ export function NpmOfficeAllocationPanel({
                               })}
                             </tr>
 
-                            {hasArticleCodes &&
+                            {showArticles &&
                               articles.map((code) => (
                                 <tr
                                   key={`${division.id}-${model}-${code}`}
@@ -799,7 +738,10 @@ export function NpmOfficeAllocationPanel({
                                     );
                                     const aKey = rowKey(model, office.name, code);
                                     return (
-                                      <td key={aKey} className="min-w-[4.5rem] border border-slate-200 p-0">
+                                      <td
+                                        key={aKey}
+                                        className="min-w-[4.5rem] border border-slate-200 p-0"
+                                      >
                                         {applies ? (
                                           isLocked ? (
                                             <div className="flex h-7 items-center justify-center text-xs tabular-nums text-amber-900">
@@ -814,6 +756,7 @@ export function NpmOfficeAllocationPanel({
                                               onChange={(e) =>
                                                 updateArticleCell(aKey, e.target.value)
                                               }
+                                              aria-label={`${code} / ${getOfficeLabel(office)}`}
                                             />
                                           )
                                         ) : null}

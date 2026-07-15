@@ -42,7 +42,8 @@ export async function POST(request) {
         .eq("planning_period_id", periodId)
         .eq("brand", row.brand)
         .eq("sales_group", row.sales_group)
-        .eq("model", row.model);
+        .eq("model", row.model)
+        .is("article_code", null);
 
       if (row.sales_office) {
         query = query.eq("sales_office", row.sales_office);
@@ -62,7 +63,7 @@ export async function POST(request) {
         }
         const { error } = await supabase
           .from("targets")
-          .update({ target_units: units })
+          .update({ target_units: units, article_code: null })
           .eq("id", existing.id);
         if (error) throw new Error(error.message);
         savedIds.push(existing.id);
@@ -76,6 +77,7 @@ export async function POST(request) {
             sales_group: row.sales_group,
             model: row.model,
             sales_office: row.sales_office || null,
+            article_code: null,
             target_units: units,
           })
           .select("id")
@@ -84,35 +86,18 @@ export async function POST(request) {
         savedIds.push(inserted.id);
         idByKey[cellKey] = inserted.id;
       }
-
-      // D&S model totals are office-agnostic: drop legacy Model × Office target rows
-      if (!row.sales_office) {
-        const { data: sameModelRows } = await supabase
-          .from("targets")
-          .select("id, sales_office")
-          .eq("planning_period_id", periodId)
-          .eq("brand", row.brand)
-          .eq("sales_group", row.sales_group)
-          .eq("model", row.model);
-
-        const legacyIds = (sameModelRows || [])
-          .filter((r) => r.sales_office)
-          .map((r) => r.id)
-          .filter(Boolean);
-        if (legacyIds.length) {
-          await supabase.from("targets").delete().in("id", legacyIds);
-        }
-      }
     }
 
-    // Sync model allocations from saved model-level targets
+    // Sync model allocations from D&S model-level targets only (ignore NPM office/article leaves)
     const { data: periodTargets, error: loadError } = await supabase
       .from("targets")
       .select("*")
       .eq("planning_period_id", periodId);
     if (loadError) throw new Error(loadError.message);
 
-    const modelTargets = (periodTargets || []).filter((t) => t.model && t.target_units > 0);
+    const modelTargets = (periodTargets || []).filter(
+      (t) => t.model && t.target_units > 0 && !t.sales_office && !t.article_code
+    );
 
     for (const target of modelTargets) {
       const { data: existingModels } = await supabase

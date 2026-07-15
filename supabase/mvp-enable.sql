@@ -15,6 +15,18 @@ BEGIN
   ) THEN
     ALTER TABLE targets ADD COLUMN IF NOT EXISTS model TEXT;
     ALTER TABLE targets ADD COLUMN IF NOT EXISTS sales_office TEXT;
+    ALTER TABLE targets ADD COLUMN IF NOT EXISTS article_code TEXT;
+
+    DROP INDEX IF EXISTS targets_period_brand_sg_model_office_article_uidx;
+    CREATE UNIQUE INDEX targets_period_brand_sg_model_office_article_uidx
+      ON targets (
+        planning_period_id,
+        brand,
+        sales_group,
+        COALESCE(model, ''),
+        COALESCE(sales_office, ''),
+        COALESCE(article_code, '')
+      );
   END IF;
 
   IF EXISTS (

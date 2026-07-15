@@ -35,27 +35,6 @@ export async function RetailAllocationContent({ plan, user }) {
     .eq("planning_period_id", plan.id)
     .order("brand");
 
-  const targetIds = (targets || []).filter((t) => !t.sales_office).map((t) => t.id);
-  let modelAllocations = [];
-  let articleAllocations = [];
-
-  if (targetIds.length) {
-    const { data: modelRows } = await supabase
-      .from("model_allocations")
-      .select("*")
-      .in("target_id", targetIds);
-    modelAllocations = modelRows || [];
-
-    const modelIds = modelAllocations.map((m) => m.id);
-    if (modelIds.length) {
-      const { data: articleRows } = await supabase
-        .from("article_allocations")
-        .select("*")
-        .in("model_allocation_id", modelIds);
-      articleAllocations = articleRows || [];
-    }
-  }
-
   const { retailTarget, allocated } = await fetchRetailAllocationTotals(supabase, plan.id);
   const progress = getRetailAllocationProgress(retailTarget, allocated);
   const isEditable = isRetailAllocationEditable(plan.status);
@@ -99,16 +78,14 @@ export async function RetailAllocationContent({ plan, user }) {
             Sales Office Allocation — {planLabel(plan.month, plan.year)}
           </CardTitle>
           <p className="text-sm text-slate-500">
-            Same Model × Sales Office grid format as planning. Values on the left come from Demand
-            &amp; Supply; enter how each model is split across offices.
+            Split Demand &amp; Supply model totals across sales offices. When a model has articles,
+            allocate at article level — model and brand rows are calculated roll-ups.
           </p>
         </CardHeader>
         <CardContent>
           <NpmOfficeAllocationPanel
             plan={plan}
             targets={targets || []}
-            modelAllocations={modelAllocations}
-            articleAllocations={articleAllocations}
             periods={periods}
             editable={isEditable}
             user={user}

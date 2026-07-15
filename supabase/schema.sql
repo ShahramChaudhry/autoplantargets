@@ -76,7 +76,7 @@ CREATE TABLE planning_periods (
   UNIQUE (month, year)
 );
 
--- Brand & Sales Group targets (model / sales_office support hierarchical target entry)
+-- Brand & Sales Group targets (model / sales_office / article_code for hierarchical entry + NPM leaves)
 CREATE TABLE targets (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   planning_period_id UUID NOT NULL REFERENCES planning_periods(id) ON DELETE CASCADE,
@@ -84,10 +84,22 @@ CREATE TABLE targets (
   sales_group TEXT NOT NULL,
   model TEXT,
   sales_office TEXT,
+  article_code TEXT,
   target_units INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Leaf uniqueness: D&S (office+article null), model×office, or article×office
+CREATE UNIQUE INDEX targets_period_brand_sg_model_office_article_uidx
+  ON targets (
+    planning_period_id,
+    brand,
+    sales_group,
+    COALESCE(model, ''),
+    COALESCE(sales_office, ''),
+    COALESCE(article_code, '')
+  );
 
 -- Model allocations
 CREATE TABLE model_allocations (
@@ -157,6 +169,9 @@ CREATE TABLE audit_logs (
 CREATE INDEX idx_vehicle_models_brand ON vehicle_models(brand_id);
 CREATE INDEX idx_article_codes_model ON article_codes(model_id);
 CREATE INDEX idx_targets_planning_period ON targets(planning_period_id);
+CREATE INDEX idx_targets_article_code
+  ON targets (planning_period_id, article_code)
+  WHERE article_code IS NOT NULL;
 CREATE INDEX idx_model_allocations_target ON model_allocations(target_id);
 CREATE INDEX idx_article_allocations_model ON article_allocations(model_allocation_id);
 CREATE INDEX idx_sales_office_allocations_period ON sales_office_allocations(planning_period_id);
