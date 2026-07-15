@@ -469,16 +469,20 @@ export function NpmOfficeAllocationPanel({
                 </th>
               </tr>
               <tr className="bg-slate-100">
-                <th
-                  colSpan={4}
-                  className="sticky left-0 z-20 border border-slate-300 bg-slate-100 px-3 py-1 text-left text-xs text-slate-500"
-                >
-                  Office code
+                <th className="sticky left-0 z-20 w-8 border border-slate-300 bg-slate-100" />
+                <th className="sticky left-8 z-20 min-w-[6rem] border border-slate-300 bg-slate-100 px-2 py-1 text-left text-xs text-slate-500">
+                  Code
+                </th>
+                <th className="sticky left-[7.5rem] z-20 min-w-[7rem] border border-slate-300 bg-slate-100 px-2 py-1 text-left text-xs text-slate-500">
+                  Model
+                </th>
+                <th className="sticky left-[14.5rem] z-20 min-w-[5rem] border border-slate-300 bg-slate-100 px-2 py-1 text-center text-xs text-slate-500">
+                  D&amp;S Total
                 </th>
                 {offices.map((office) => (
                   <th
                     key={`code-${office.name}`}
-                    className="border border-slate-300 px-1 py-1 text-center font-mono text-[10px] text-slate-600"
+                    className="min-w-[4.5rem] border border-slate-300 px-1 py-1 text-center font-mono text-[10px] text-slate-600"
                   >
                     {office.code}
                   </th>
@@ -486,19 +490,19 @@ export function NpmOfficeAllocationPanel({
               </tr>
               <tr className="bg-slate-50">
                 <th className="sticky left-0 z-20 w-8 border border-slate-300 bg-slate-50" />
-                <th className="sticky left-8 z-20 border border-slate-300 bg-slate-50 px-2 py-1 text-left text-xs text-slate-500">
-                  Model
+                <th className="sticky left-8 z-20 min-w-[6rem] border border-slate-300 bg-slate-50 px-2 py-1 text-left text-xs text-slate-400">
+                  —
                 </th>
-                <th className="sticky left-[7rem] z-20 border border-slate-300 bg-slate-50 px-2 py-1 text-left text-xs text-slate-500">
-                  Name
+                <th className="sticky left-[7.5rem] z-20 min-w-[7rem] border border-slate-300 bg-slate-50 px-2 py-1 text-left text-xs text-slate-400">
+                  —
                 </th>
-                <th className="sticky left-[14rem] z-20 border border-slate-300 bg-slate-50 px-2 py-1 text-center text-xs text-slate-500">
-                  D&amp;S Total
+                <th className="sticky left-[14.5rem] z-20 min-w-[5rem] border border-slate-300 bg-slate-50 px-2 py-1 text-center text-xs text-slate-400">
+                  —
                 </th>
                 {offices.map((office) => (
                   <th
                     key={`name-${office.name}`}
-                    className="border border-slate-300 px-1 py-1 text-center text-[10px] font-medium leading-tight text-slate-700"
+                    className="min-w-[4.5rem] border border-slate-300 px-1 py-1 text-center text-[10px] font-medium leading-tight text-slate-700"
                   >
                     {getOfficeLabel(office)}
                   </th>
@@ -584,7 +588,7 @@ export function NpmOfficeAllocationPanel({
                                 mismatched && "bg-red-50/80"
                               )}
                             >
-                              <td className="sticky left-0 z-10 border border-slate-200 bg-inherit px-1 text-center">
+                              <td className="sticky left-0 z-10 w-8 border border-slate-200 bg-inherit px-1 text-center">
                                 {articles.length > 0 && (
                                   <button
                                     type="button"
@@ -607,20 +611,20 @@ export function NpmOfficeAllocationPanel({
                                   </button>
                                 )}
                               </td>
-                              <td className="sticky left-8 z-10 border border-slate-200 bg-inherit px-2 py-1.5 font-mono text-xs text-slate-600">
+                              <td className="sticky left-8 z-10 min-w-[6rem] border border-slate-200 bg-inherit px-2 py-1.5 font-mono text-xs text-slate-600">
                                 {model}
                               </td>
-                              <td className="sticky left-[7rem] z-10 border border-slate-200 bg-inherit px-2 py-1.5 font-medium text-slate-900">
+                              <td className="sticky left-[7.5rem] z-10 min-w-[7rem] border border-slate-200 bg-inherit px-2 py-1.5 font-medium text-slate-900">
                                 {model}
                               </td>
-                              <td className="sticky left-[14rem] z-10 border border-slate-200 bg-inherit px-2 py-1.5 text-center font-semibold tabular-nums text-slate-800">
+                              <td className="sticky left-[14.5rem] z-10 min-w-[5rem] border border-slate-200 bg-inherit px-2 py-1.5 text-center font-semibold tabular-nums text-slate-800">
                                 {dsTotal}
                               </td>
                               {offices.map((office) => {
                                 const applies = divOffices.some((o) => o.name === office.name);
                                 const key = rowKey(model, office.name);
                                 return (
-                                  <td key={key} className="border border-slate-200 p-0">
+                                  <td key={key} className="min-w-[4.5rem] border border-slate-200 p-0">
                                     {applies ? (
                                       isLocked ? (
                                         <div className="flex h-8 items-center justify-center text-sm tabular-nums">
@@ -652,14 +656,14 @@ export function NpmOfficeAllocationPanel({
                                   key={`${division.id}-${model}-${code}`}
                                   className="bg-amber-50/30 text-xs"
                                 >
-                                  <td className="sticky left-0 z-10 border border-slate-200 bg-inherit" />
-                                  <td className="sticky left-8 z-10 border border-slate-200 bg-inherit px-2 py-1 text-slate-400">
+                                  <td className="sticky left-0 z-10 w-8 border border-slate-200 bg-inherit" />
+                                  <td className="sticky left-8 z-10 min-w-[6rem] border border-slate-200 bg-inherit px-2 py-1 text-slate-400">
                                     ↳
                                   </td>
-                                  <td className="sticky left-[7rem] z-10 border border-slate-200 bg-inherit px-2 py-1 font-mono text-[11px] text-amber-900">
+                                  <td className="sticky left-[7.5rem] z-10 min-w-[7rem] border border-slate-200 bg-inherit px-2 py-1 font-mono text-[11px] text-amber-900">
                                     {code}
                                   </td>
-                                  <td className="sticky left-[14rem] z-10 border border-slate-200 bg-inherit px-2 py-1 text-center text-[10px] text-slate-400">
+                                  <td className="sticky left-[14.5rem] z-10 min-w-[5rem] border border-slate-200 bg-inherit px-2 py-1 text-center text-[10px] text-slate-400">
                                     —
                                   </td>
                                   {offices.map((office) => {
@@ -668,7 +672,7 @@ export function NpmOfficeAllocationPanel({
                                     );
                                     const aKey = rowKey(model, office.name, code);
                                     return (
-                                      <td key={aKey} className="border border-slate-200 p-0">
+                                      <td key={aKey} className="min-w-[4.5rem] border border-slate-200 p-0">
                                         {applies ? (
                                           isLocked ? (
                                             <div className="flex h-7 items-center justify-center text-xs tabular-nums text-amber-900">
