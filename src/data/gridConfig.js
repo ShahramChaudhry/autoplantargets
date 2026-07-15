@@ -10,7 +10,6 @@ export const divisionGridConfig = {
     includeSalesOffices: true,
   },
   Honda: {
-    // Set to true to enable Model × Sales Office for Honda without UI changes
-    includeSalesOffices: false,
+    includeSalesOffices: true,
   },
 };

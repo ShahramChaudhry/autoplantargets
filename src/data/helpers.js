@@ -4,6 +4,7 @@ import { salesOffices } from "./salesOffices";
 import { salesExecutives } from "./salesExecutives";
 import { models } from "./models";
 import { divisionGridConfig } from "./gridConfig";
+import { getResponsibility } from "./responsibilities";
 
 /**
  * Master-data accessors.
@@ -13,6 +14,13 @@ import { divisionGridConfig } from "./gridConfig";
 
 export function getDivisions() {
   return divisions;
+}
+
+export function getDivisionsForUser(user) {
+  const scope = getResponsibility(user);
+  if (scope.divisions === "all") return divisions;
+  const allowed = new Set(scope.divisions || []);
+  return divisions.filter((d) => allowed.has(d.name));
 }
 
 export function getDivisionById(id) {
@@ -27,6 +35,14 @@ export function getSalesGroups(_division) {
   return salesGroups;
 }
 
+/** Primary vehicle sales groups shown first in Target Entry for a simpler UI. */
+export function getPrimarySalesGroups() {
+  const preferred = ["001", "002", "014", "015", "021", "006"];
+  const byCode = Object.fromEntries(salesGroups.map((g) => [g.code, g]));
+  const primary = preferred.map((code) => byCode[code]).filter(Boolean);
+  return primary.length ? primary : salesGroups.slice(0, 6);
+}
+
 export function getSalesGroupByCode(code) {
   return salesGroups.find((g) => g.code === code) || null;
 }
@@ -38,6 +54,23 @@ export function getSalesGroupByName(name) {
 export function getSalesOffices(division) {
   const name = typeof division === "string" ? division : division?.name;
   return salesOffices[name] || [];
+}
+
+/**
+ * Sales offices visible to the current user for a division.
+ * Demand & Supply / leadership see all; scoped users see only their territory.
+ */
+export function getSalesOfficesForUser(user, division) {
+  const divisionName = typeof division === "string" ? division : division?.name;
+  const all = getSalesOffices(divisionName);
+  const scope = getResponsibility(user);
+
+  if (scope.offices === "all" || !scope.offices) return all;
+
+  const allowed = scope.offices[divisionName];
+  if (!allowed) return [];
+  if (allowed === "all") return all;
+  return all.filter((office) => allowed.includes(office));
 }
 
 export function getSalesExecutives(division, salesOffice) {
@@ -64,8 +97,9 @@ export function getGridConfig(division) {
 /**
  * Build target-entry grid rows for a Division + Sales Group.
  * Optional salesOffice scopes Model × Office layouts to one office.
+ * Optional offices list overrides master office list (responsibility filter).
  */
-export function buildTargetGridRows(division, salesGroup, salesOffice = null) {
+export function buildTargetGridRows(division, salesGroup, salesOffice = null, officesOverride = null) {
   const divisionName = typeof division === "string" ? division : division?.name;
   const groupName = typeof salesGroup === "string" ? salesGroup : salesGroup?.name;
   const config = getGridConfig(divisionName);
@@ -74,6 +108,8 @@ export function buildTargetGridRows(division, salesGroup, salesOffice = null) {
   let offices;
   if (salesOffice) {
     offices = [salesOffice];
+  } else if (officesOverride) {
+    offices = officesOverride;
   } else if (config.includeSalesOffices) {
     offices = getSalesOffices(divisionName);
   } else {
@@ -96,4 +132,13 @@ export function buildTargetGridRows(division, salesGroup, salesOffice = null) {
 
 export function rowKey(model, salesOffice) {
   return salesOffice ? `${model}::${salesOffice}` : model;
+}
+
+/** Short office label for dense column headers. */
+export function getOfficeShortLabel(office) {
+  if (!office) return "";
+  return office
+    .replace(/^Toyota-/, "")
+    .replace(/^Honda-/, "")
+    .trim();
 }

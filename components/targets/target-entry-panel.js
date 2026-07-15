@@ -5,21 +5,21 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn, formatPeriod } from "@/lib/utils";
-import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  getDivisions,
+  getDivisionsForUser,
+  getPrimarySalesGroups,
   getSalesGroups,
-  getSalesOffices,
-  getSalesExecutives,
+  getSalesOfficesForUser,
+  getModels,
   getDivisionById,
   getSalesGroupByCode,
-  buildTargetGridRows,
+  getOfficeShortLabel,
+  rowKey,
 } from "@/src/data";
 import { planLabel, planSlug, planStepPath } from "@/lib/plans";
-import { Save, ArrowRight, Grid3X3 } from "lucide-react";
+import { Save, ArrowRight } from "lucide-react";
 
 function findExistingTarget(targets, brand, salesGroup, model, salesOffice) {
   return targets.find((t) => {
@@ -35,111 +35,101 @@ function findExistingTarget(targets, brand, salesGroup, model, salesOffice) {
   });
 }
 
-export function TargetEntryPanel({ plan, targets, periods = [], editable = true }) {
+export function TargetEntryPanel({
+  plan,
+  targets,
+  periods = [],
+  editable = true,
+  user = null,
+}) {
   const router = useRouter();
-  const divisions = useMemo(() => getDivisions(), []);
+  const visibleDivisions = useMemo(() => getDivisionsForUser(user), [user]);
 
-  const [divisionId, setDivisionId] = useState(divisions[0]?.id || "");
-  const [salesGroupCode, setSalesGroupCode] = useState("");
-  const [salesOffice, setSalesOffice] = useState("");
-  const [salesExecutiveId, setSalesExecutiveId] = useState("");
-  const [gridActive, setGridActive] = useState(false);
-  const [rows, setRows] = useState([]);
+  const [divisionId, setDivisionId] = useState(visibleDivisions[0]?.id || "");
+  const [salesGroupCode, setSalesGroupCode] = useState("001");
   const [values, setValues] = useState({});
   const [recordIds, setRecordIds] = useState({});
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [showAllGroups, setShowAllGroups] = useState(false);
 
   const division = getDivisionById(divisionId);
-  const salesGroups = useMemo(
-    () => (division ? getSalesGroups(division) : []),
-    [division]
-  );
+  const salesGroupOptions = showAllGroups ? getSalesGroups(division) : getPrimarySalesGroups();
   const salesGroup = getSalesGroupByCode(salesGroupCode);
-  const officeOptions = useMemo(
-    () => (division ? getSalesOffices(division) : []),
-    [division]
+
+  const offices = useMemo(
+    () => (division ? getSalesOfficesForUser(user, division) : []),
+    [user, division]
   );
-  const executiveOptions = useMemo(
-    () => (division && salesOffice ? getSalesExecutives(division, salesOffice) : []),
-    [division, salesOffice]
+  const models = useMemo(
+    () => (division && salesGroup ? getModels(division, salesGroup) : []),
+    [division, salesGroup]
   );
-  const selectedExecutive = executiveOptions.find((e) => e.id === salesExecutiveId) || null;
 
   const monthOptions = periods.length > 0 ? periods : [plan];
   const planPath = planSlug(plan.month, plan.year);
+  const planTitle = planLabel(plan.month, plan.year);
 
   useEffect(() => {
-    if (salesGroups.length > 0 && !salesGroups.some((g) => g.code === salesGroupCode)) {
-      setSalesGroupCode(salesGroups[0].code);
-      setGridActive(false);
-      setRows([]);
+    if (visibleDivisions.length === 0) return;
+    if (!visibleDivisions.some((d) => d.id === divisionId)) {
+      setDivisionId(visibleDivisions[0].id);
     }
-  }, [salesGroups, salesGroupCode]);
+  }, [visibleDivisions, divisionId]);
 
   useEffect(() => {
-    if (officeOptions.length === 0) {
-      setSalesOffice("");
-      setSalesExecutiveId("");
+    if (salesGroupOptions.length === 0) return;
+    if (!salesGroupOptions.some((g) => g.code === salesGroupCode)) {
+      setSalesGroupCode(salesGroupOptions[0].code);
+    }
+  }, [salesGroupOptions, salesGroupCode]);
+
+  // Hydrate cell values whenever filters / saved targets change
+  useEffect(() => {
+    if (!division || !salesGroup || models.length === 0) {
+      setValues({});
+      setRecordIds({});
       return;
     }
-    if (!officeOptions.includes(salesOffice)) {
-      setSalesOffice(officeOptions[0]);
-      setSalesExecutiveId("");
-      setGridActive(false);
-      setRows([]);
-    }
-  }, [officeOptions, salesOffice]);
 
-  useEffect(() => {
-    if (executiveOptions.length === 0) {
-      setSalesExecutiveId("");
-      return;
+    const nextValues = {};
+    const nextIds = {};
+
+    for (const model of models) {
+      for (const office of offices) {
+        const key = rowKey(model, office);
+        const existing = findExistingTarget(
+          targets,
+          division.name,
+          salesGroup.name,
+          model,
+          office
+        );
+        nextValues[key] = existing ? String(existing.target_units) : "";
+        if (existing) nextIds[key] = existing.id;
+      }
     }
-    if (!executiveOptions.some((e) => e.id === salesExecutiveId)) {
-      setSalesExecutiveId(executiveOptions[0].id);
-    }
-  }, [executiveOptions, salesExecutiveId]);
+
+    setValues(nextValues);
+    setRecordIds(nextIds);
+    setError("");
+    setMessage("");
+  }, [division, salesGroup, models, offices, targets]);
 
   const total = useMemo(
     () => Object.values(values).reduce((sum, v) => sum + (parseInt(v, 10) || 0), 0),
     [values]
   );
 
-  const showSalesOfficeColumn = rows.some((r) => r.includeSalesOffice);
-
-  function resetGrid() {
-    setGridActive(false);
-    setRows([]);
-    setValues({});
-    setRecordIds({});
-    setMessage("");
-    setError("");
-  }
-
-  function handleDivisionChange(id) {
-    setDivisionId(id);
-    setSalesOffice("");
-    setSalesExecutiveId("");
-    resetGrid();
-  }
-
-  function handleSalesGroupChange(code) {
-    setSalesGroupCode(code);
-    resetGrid();
-  }
-
-  function handleSalesOfficeChange(office) {
-    setSalesOffice(office);
-    setSalesExecutiveId("");
-    resetGrid();
-  }
-
-  function handleSalesExecutiveChange(id) {
-    setSalesExecutiveId(id);
-    resetGrid();
-  }
+  const columnTotals = useMemo(() => {
+    return offices.map((office) =>
+      models.reduce((sum, model) => {
+        const raw = values[rowKey(model, office)];
+        return sum + (parseInt(raw, 10) || 0);
+      }, 0)
+    );
+  }, [offices, models, values]);
 
   function handleMonthChange(slug) {
     if (slug && slug !== planPath) {
@@ -147,64 +137,20 @@ export function TargetEntryPanel({ plan, targets, periods = [], editable = true 
     }
   }
 
-  function generateGrid() {
-    if (!division || !salesGroup) {
-      setError("Select Division and Sales Group before generating the grid.");
-      return;
-    }
-    if (!salesOffice) {
-      setError("Select a Sales Office before generating the grid.");
-      return;
-    }
-    if (!salesExecutiveId) {
-      setError("Select a Sales Executive before generating the grid.");
-      return;
-    }
-
-    const nextRows = buildTargetGridRows(division, salesGroup, salesOffice);
-    if (nextRows.length === 0) {
-      setError("No models configured for this Division and Sales Group.");
-      setGridActive(false);
-      setRows([]);
-      return;
-    }
-
-    const nextValues = {};
-    const nextIds = {};
-
-    for (const row of nextRows) {
-      const existing = findExistingTarget(
-        targets,
-        division.name,
-        salesGroup.name,
-        row.model,
-        row.salesOffice
-      );
-      nextValues[row.key] = existing ? String(existing.target_units) : "";
-      if (existing) nextIds[row.key] = existing.id;
-    }
-
-    setRows(nextRows);
-    setValues(nextValues);
-    setRecordIds(nextIds);
-    setGridActive(true);
-    setError("");
-    setMessage("");
-  }
-
   function updateCell(key, value) {
     if (value !== "" && !/^\d+$/.test(value)) return;
     setValues((prev) => ({ ...prev, [key]: value }));
   }
 
-  async function saveRow(row, units) {
-    const existingId = recordIds[row.key];
+  async function saveCell(model, office, units) {
+    const key = rowKey(model, office);
+    const existingId = recordIds[key];
     const payload = {
       planning_period_id: plan.id,
       brand: division.name,
       sales_group: salesGroup.name,
-      model: row.model,
-      sales_office: row.salesOffice || salesOffice || null,
+      model,
+      sales_office: office,
       target_units: units,
     };
 
@@ -241,8 +187,16 @@ export function TargetEntryPanel({ plan, targets, periods = [], editable = true 
   }
 
   async function handleSaveDraft() {
-    if (!division || !salesGroup || !gridActive) {
-      setError("Generate the grid before saving.");
+    if (!division || !salesGroup) {
+      setError("Select Division and Sales Group first.");
+      return;
+    }
+    if (models.length === 0) {
+      setError("No models configured for this Sales Group.");
+      return;
+    }
+    if (offices.length === 0) {
+      setError("No sales offices are available for your responsibility.");
       return;
     }
 
@@ -253,17 +207,18 @@ export function TargetEntryPanel({ plan, targets, periods = [], editable = true 
     try {
       const nextIds = { ...recordIds };
 
-      for (const row of rows) {
-        const raw = values[row.key];
-        const units = raw === "" || raw === undefined ? 0 : parseInt(raw, 10);
-        if (Number.isNaN(units) || units < 0) {
-          throw new Error(`Invalid target for ${row.model}`);
+      for (const model of models) {
+        for (const office of offices) {
+          const key = rowKey(model, office);
+          const raw = values[key];
+          const units = raw === "" || raw === undefined ? 0 : parseInt(raw, 10);
+          if (Number.isNaN(units) || units < 0) {
+            throw new Error(`Invalid target for ${model}`);
+          }
+          if (!nextIds[key] && units === 0) continue;
+          const id = await saveCell(model, office, units);
+          if (id) nextIds[key] = id;
         }
-
-        if (!nextIds[row.key] && units === 0) continue;
-
-        const id = await saveRow(row, units);
-        if (id) nextIds[row.key] = id;
       }
 
       setRecordIds(nextIds);
@@ -276,243 +231,215 @@ export function TargetEntryPanel({ plan, targets, periods = [], editable = true 
     }
   }
 
+  const hasGrid = division && salesGroup && models.length > 0 && offices.length > 0;
+
   return (
-    <div className="space-y-6">
-      <Card className="border-slate-200 bg-slate-50/50">
-        <CardContent className="py-4">
-          <p className="text-sm text-slate-500">Selected Plan</p>
-          <p className="text-lg font-semibold text-slate-900">{planLabel(plan.month, plan.year)}</p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Target Entry</CardTitle>
-          <p className="text-sm text-slate-500">
-            Select Division, Month, Sales Group, Sales Office, and Sales Executive, then generate
-            the target grid.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
-            <div className="space-y-2">
-              <Label>Division</Label>
-              <Select
-                value={divisionId}
-                onChange={(e) => handleDivisionChange(e.target.value)}
-                disabled={!editable}
-              >
-                {divisions.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Month</Label>
-              <Select
-                value={planPath}
-                onChange={(e) => handleMonthChange(e.target.value)}
-              >
-                {monthOptions.map((p) => (
-                  <option key={p.id} value={planSlug(p.month, p.year)}>
-                    {formatPeriod(p.month, p.year)}
-                  </option>
-                ))}
-              </Select>
-            </div>
-
-            <div className="space-y-2 sm:col-span-2">
-              <Label>Sales Group</Label>
-              <Select
-                value={salesGroupCode}
-                onChange={(e) => handleSalesGroupChange(e.target.value)}
-                disabled={!editable || salesGroups.length === 0}
-              >
-                {salesGroups.map((g) => (
-                  <option key={g.code} value={g.code}>
-                    {g.code} — {g.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
-            <div className="space-y-2 sm:col-span-2">
-              <Label>Sales Office</Label>
-              <Select
-                value={salesOffice}
-                onChange={(e) => handleSalesOfficeChange(e.target.value)}
-                disabled={!editable || officeOptions.length === 0}
-              >
-                {officeOptions.length === 0 && <option value="">No offices</option>}
-                {officeOptions.map((office) => (
-                  <option key={office} value={office}>
-                    {office}
-                  </option>
-                ))}
-              </Select>
-            </div>
-
-            <div className="space-y-2 sm:col-span-2">
-              <Label>Sales Executive</Label>
-              <Select
-                value={salesExecutiveId}
-                onChange={(e) => handleSalesExecutiveChange(e.target.value)}
-                disabled={!editable || executiveOptions.length === 0}
-              >
-                {executiveOptions.length === 0 && <option value="">Select office first</option>}
-                {executiveOptions.map((exec) => (
-                  <option key={exec.id} value={exec.id}>
-                    {exec.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
-
-          {editable && (
-            <div className="flex justify-end">
-              <Button type="button" onClick={generateGrid} className="gap-2">
-                <Grid3X3 className="h-4 w-4" />
-                Generate Grid
-              </Button>
-            </div>
-          )}
-
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          {message && <p className="text-sm text-emerald-700">{message}</p>}
-        </CardContent>
-      </Card>
-
-      {gridActive && (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {division?.name} · {salesGroup?.name} · {salesOffice}
-            </CardTitle>
-            <p className="text-sm text-slate-500">
-              {selectedExecutive
-                ? `Sales Executive: ${selectedExecutive.name}`
-                : null}
-              {selectedExecutive && showSalesOfficeColumn ? " · " : null}
-              {showSalesOfficeColumn
-                ? "Rows are models for the selected sales office."
-                : "Rows are generated as Models from master data."}
-            </p>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-hidden rounded-lg border border-slate-200">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Model</th>
-                    {showSalesOfficeColumn && (
-                      <th className="px-4 py-3">Sales Office</th>
-                    )}
-                    <th className="px-4 py-3 text-right">Target</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {rows.map((row) => (
-                    <tr key={row.key} className="bg-white">
-                      <td className="px-4 py-3 font-medium text-slate-900">{row.model}</td>
-                      {showSalesOfficeColumn && (
-                        <td className="px-4 py-3 text-slate-600">
-                          {row.salesOffice || "—"}
-                        </td>
-                      )}
-                      <td className="px-4 py-3 text-right">
-                        <Input
-                          type="number"
-                          min="0"
-                          className="ml-auto h-9 w-28 text-right"
-                          value={values[row.key] ?? ""}
-                          onChange={(e) => updateCell(row.key, e.target.value)}
-                          disabled={!editable}
-                          placeholder="0"
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {!gridActive && targets.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Saved Targets</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-hidden rounded-lg border border-slate-200">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Division</th>
-                    <th className="px-4 py-3">Sales Group</th>
-                    <th className="px-4 py-3">Model</th>
-                    <th className="px-4 py-3">Sales Office</th>
-                    <th className="px-4 py-3 text-right">Target Units</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {targets.map((target) => (
-                    <tr key={target.id} className="bg-white">
-                      <td className="px-4 py-3 font-medium text-slate-900">{target.brand}</td>
-                      <td className="px-4 py-3 text-slate-600">{target.sales_group}</td>
-                      <td className="px-4 py-3 text-slate-600">{target.model || "—"}</td>
-                      <td className="px-4 py-3 text-slate-600">{target.sales_office || "—"}</td>
-                      <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                        {target.target_units.toLocaleString()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="mt-3 text-sm text-slate-500">
-              Select the matching Division, Sales Group, and Sales Office, then Generate Grid to edit.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div>
-          <p className="text-sm text-slate-500">
-            {gridActive ? "Grid Total Units" : "Saved Total Units"}
-          </p>
-          <p className="text-2xl font-bold text-slate-900">
-            {(gridActive ? total : targets.reduce((s, t) => s + t.target_units, 0)).toLocaleString()}
-          </p>
+    <div className="space-y-4">
+      {/* Compact filter bar — no heavy cards */}
+      <div className="flex flex-wrap items-end gap-3 border border-slate-200 bg-white px-4 py-3">
+        <div className="min-w-[140px] space-y-1">
+          <Label className="text-xs text-slate-500">Division</Label>
+          <Select
+            value={divisionId}
+            onChange={(e) => setDivisionId(e.target.value)}
+            disabled={!editable || visibleDivisions.length === 0}
+            className="h-9"
+          >
+            {visibleDivisions.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </Select>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {editable && gridActive && (
-            <Button variant="outline" onClick={handleSaveDraft} disabled={saving} className="gap-2">
-              <Save className="h-4 w-4" />
-              {saving ? "Saving..." : "Save Draft"}
+
+        <div className="min-w-[160px] space-y-1">
+          <Label className="text-xs text-slate-500">Month</Label>
+          <Select
+            value={planPath}
+            onChange={(e) => handleMonthChange(e.target.value)}
+            className="h-9"
+          >
+            {monthOptions.map((p) => (
+              <option key={p.id} value={planSlug(p.month, p.year)}>
+                {formatPeriod(p.month, p.year)}
+              </option>
+            ))}
+          </Select>
+        </div>
+
+        <div className="min-w-[200px] flex-1 space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-xs text-slate-500">Sales Group</Label>
+            <button
+              type="button"
+              onClick={() => setShowAllGroups((v) => !v)}
+              className="text-[11px] text-slate-500 underline-offset-2 hover:underline"
+            >
+              {showAllGroups ? "Show primary" : "Show all groups"}
+            </button>
+          </div>
+          <Select
+            value={salesGroupCode}
+            onChange={(e) => setSalesGroupCode(e.target.value)}
+            disabled={!editable}
+            className="h-9"
+          >
+            {salesGroupOptions.map((g) => (
+              <option key={g.code} value={g.code}>
+                {g.code} — {g.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+
+        <div className="ml-auto flex items-center gap-2 pb-0.5">
+          {editable && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleSaveDraft}
+              disabled={saving || !hasGrid}
+              className="gap-1.5"
+            >
+              <Save className="h-3.5 w-3.5" />
+              {saving ? "Saving..." : "Save"}
             </Button>
           )}
           <Link
             href={planStepPath("/model-allocations", plan.month, plan.year)}
-            className={cn(
-              buttonVariants(),
-              "gap-2",
-              targets.length === 0 && !gridActive && "pointer-events-none opacity-50"
-            )}
-            aria-disabled={targets.length === 0 && !gridActive}
+            className={cn(buttonVariants({ size: "sm" }), "gap-1.5")}
           >
-            Continue to Model Allocation
-            <ArrowRight className="h-4 w-4" />
+            Continue
+            <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </div>
+      </div>
+
+      {(error || message) && (
+        <p className={cn("text-sm", error ? "text-red-600" : "text-emerald-700")}>
+          {error || message}
+        </p>
+      )}
+
+      {!hasGrid && (
+        <p className="border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+          {offices.length === 0
+            ? "No sales offices are available for your responsibility on this division."
+            : "No models configured for this Division and Sales Group."}
+        </p>
+      )}
+
+      {/* Spreadsheet-style Model × Sales Office matrix */}
+      {hasGrid && (
+        <div className="overflow-auto border border-slate-300 bg-white shadow-sm">
+          <table className="min-w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-rose-100/80">
+                <th
+                  colSpan={2}
+                  className="sticky left-0 z-20 border border-slate-300 bg-rose-100 px-3 py-1.5 text-left text-xs font-semibold text-slate-700"
+                >
+                  {planTitle}
+                </th>
+                <th
+                  colSpan={offices.length}
+                  className="border border-slate-300 px-3 py-1.5 text-center text-xs font-semibold text-slate-700"
+                >
+                  Month to Date
+                </th>
+              </tr>
+              <tr className="bg-rose-50">
+                <th
+                  colSpan={2}
+                  className="sticky left-0 z-20 border border-slate-300 bg-rose-50 px-3 py-1.5 text-left text-xs font-medium text-slate-600"
+                >
+                  Sales Group
+                </th>
+                <th
+                  colSpan={offices.length}
+                  className="border border-slate-300 px-3 py-1.5 text-center text-xs font-semibold text-slate-800"
+                >
+                  {salesGroup.name}
+                </th>
+              </tr>
+              <tr className="bg-slate-100">
+                <th className="sticky left-0 z-20 min-w-[120px] border border-slate-300 bg-slate-100 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Model
+                </th>
+                <th className="sticky left-[120px] z-20 min-w-[140px] border border-slate-300 bg-slate-100 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Name
+                </th>
+                {offices.map((office) => (
+                  <th
+                    key={office}
+                    className="min-w-[100px] border border-slate-300 px-2 py-2 text-center text-xs font-semibold text-slate-700"
+                    title={office}
+                  >
+                    <div className="leading-tight">{getOfficeShortLabel(office)}</div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {models.map((model, rowIndex) => (
+                <tr
+                  key={model}
+                  className={rowIndex % 2 === 0 ? "bg-sky-50/40" : "bg-white"}
+                >
+                  <td className="sticky left-0 z-10 border border-slate-200 bg-inherit px-3 py-1.5 font-mono text-xs text-slate-600">
+                    {model}
+                  </td>
+                  <td className="sticky left-[120px] z-10 border border-slate-200 bg-inherit px-3 py-1.5 font-medium text-slate-900">
+                    {model}
+                  </td>
+                  {offices.map((office) => {
+                    const key = rowKey(model, office);
+                    return (
+                      <td key={key} className="border border-slate-200 p-0">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          className="h-9 w-full bg-transparent px-2 text-center text-sm tabular-nums outline-none focus:bg-amber-50 disabled:cursor-not-allowed"
+                          value={values[key] ?? ""}
+                          onChange={(e) => updateCell(key, e.target.value)}
+                          disabled={!editable}
+                          placeholder=""
+                          aria-label={`${model} / ${office}`}
+                        />
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+              <tr className="bg-slate-100 font-semibold">
+                <td
+                  colSpan={2}
+                  className="sticky left-0 z-10 border border-slate-300 bg-slate-100 px-3 py-2 text-xs uppercase tracking-wide text-slate-600"
+                >
+                  Total
+                </td>
+                {columnTotals.map((colTotal, i) => (
+                  <td
+                    key={offices[i]}
+                    className="border border-slate-300 px-2 py-2 text-center tabular-nums text-slate-900"
+                  >
+                    {colTotal || ""}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500">
+        <p>
+          Showing {offices.length} sales office{offices.length === 1 ? "" : "s"} for your
+          responsibility · Grid total:{" "}
+          <span className="font-semibold text-slate-800">{total.toLocaleString()}</span> units
+        </p>
       </div>
     </div>
   );

@@ -11,7 +11,7 @@ import { isPlanEditable } from "@/lib/workflow";
 import { planSlug } from "@/lib/plans";
 
 export default async function TargetsPage({ searchParams }) {
-  await requirePageAccess("/targets");
+  const user = await requirePageAccess("/targets");
   const params = await searchParams;
   const planSlugParam = params?.plan;
   const periods = await getPlanningPeriods();
@@ -22,7 +22,7 @@ export default async function TargetsPage({ searchParams }) {
         <>
           <Header
             title="Target Creation"
-            description="Set monthly targets by division, sales group, model, and sales office"
+            description="Enter monthly targets by model and sales office"
           />
           <DemandSupplyStepper currentStep="targets" plan={null} />
           <EmptyPlansGuide />
@@ -50,7 +50,7 @@ export default async function TargetsPage({ searchParams }) {
     <>
       <Header
         title="Target Creation"
-        description="Set monthly targets by division, sales group, model, and sales office"
+        description="Enter monthly targets by model and sales office"
       />
       <DemandSupplyStepper currentStep="targets" plan={plan} />
       {!editable && <PlanLockBanner />}
@@ -59,6 +59,7 @@ export default async function TargetsPage({ searchParams }) {
         targets={targets || []}
         periods={periods}
         editable={editable}
+        user={user}
       />
     </>
   );
