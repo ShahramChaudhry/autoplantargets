@@ -23,7 +23,7 @@ export default async function DashboardPage() {
   if (current?.role === ROLES.DEMAND_SUPPLY) {
     redirect("/monthly-planning");
   }
-  if (current?.role === ROLES.B2B_DIRECTOR) {
+  if (current?.role === ROLES.B2B_DIRECTOR || current?.role === ROLES.MANAGING_DIRECTOR) {
     redirect("/approvals");
   }
 
