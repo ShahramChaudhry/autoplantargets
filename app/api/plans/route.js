@@ -41,7 +41,7 @@ export async function POST(request) {
 
   const { data: plan, error } = await supabase
     .from("planning_periods")
-    .insert({ month: monthNum, year: yearNum, status: "draft" })
+    .insert({ month: monthNum, year: yearNum, status: "draft", article_allocation_skipped: false })
     .select()
     .single();
 

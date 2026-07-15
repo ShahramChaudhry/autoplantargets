@@ -23,7 +23,7 @@ const MONTHS = [
   { value: 12, label: "December" },
 ];
 
-export function CreatePlanModal({ open, onClose, redirectBase = "/targets" }) {
+export function CreatePlanModal({ open, onClose, redirectBase = "/monthly-planning" }) {
   const router = useRouter();
   const now = new Date();
   const [month, setMonth] = useState(String(now.getMonth() + 1));
@@ -52,7 +52,11 @@ export function CreatePlanModal({ open, onClose, redirectBase = "/targets" }) {
       }
 
       onClose();
-      router.push(`${redirectBase}?plan=${data.slug}`);
+      const destination =
+        redirectBase === "/monthly-planning" || redirectBase.startsWith("/monthly-planning")
+          ? `/monthly-planning/${data.slug}?step=targets`
+          : `${redirectBase}?plan=${data.slug}`;
+      router.push(destination);
       router.refresh();
     } finally {
       setLoading(false);

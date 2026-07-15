@@ -6,7 +6,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge, getStatusBadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CreatePlanModal } from "@/components/plan/create-plan-modal";
-import { DemandSupplyStepper } from "@/components/workflow/demand-supply-stepper";
 import { STATUS_LABELS } from "@/lib/constants";
 import { planLabel, planWorkspacePath } from "@/lib/plans";
 import { ArrowRight, Calendar, Plus } from "lucide-react";
@@ -16,8 +15,6 @@ export function MonthlyPlansClient({ plans }) {
 
   return (
     <>
-      <DemandSupplyStepper currentStep="plan" plan={null} />
-
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-sm text-slate-600">

@@ -1,16 +1,16 @@
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge, getStatusBadgeVariant } from "@/components/ui/badge";
-import { STATUS_LABELS } from "@/lib/constants";
 import { FinalizePlanAction } from "@/components/workflow/finalize-plan-action";
-import { planWorkspacePath, planTargetsPath, planStepPath } from "@/lib/plans";
+import { STATUS_LABELS } from "@/lib/constants";
+import { planWorkspacePath, planStepPath } from "@/lib/plans";
 import { formatPeriod } from "@/lib/utils";
 import {
-  Activity,
+  FileEdit,
+  Send,
+  RotateCcw,
+  CheckCircle2,
   Bell,
-  ClipboardCheck,
-  Shield,
-  Target,
 } from "lucide-react";
 
 function KpiCard({ title, value, subtitle, icon: Icon, href }) {
@@ -38,30 +38,31 @@ export function DemandSupplyDashboard({ kpis }) {
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <KpiCard
-          title="Current Month Plan Status"
-          value={kpis.planStatusLabel}
-          subtitle={plan ? formatPeriod(plan.month, plan.year) : "No plan selected"}
-          icon={Activity}
-          href={plan ? planWorkspacePath(plan.month, plan.year) : "/monthly-target-plans"}
+          title="Draft Plans"
+          value={kpis.draftPlans}
+          subtitle="In progress"
+          icon={FileEdit}
+          href="/monthly-planning"
         />
         <KpiCard
-          title="Total Target Units"
-          value={kpis.totalTargetUnits.toLocaleString()}
-          subtitle="Across current plan"
-          icon={Target}
-          href={plan ? planTargetsPath(plan.month, plan.year) : undefined}
+          title="Submitted Plans"
+          value={kpis.submittedPlans}
+          subtitle="Awaiting approval"
+          icon={Send}
+          href="/monthly-planning"
         />
         <KpiCard
-          title="Pending B2B Reviews"
-          value={kpis.pendingB2B}
-          subtitle="Plans awaiting B2B"
-          icon={ClipboardCheck}
+          title="Returned Plans"
+          value={kpis.returnedPlans}
+          subtitle="Changes requested"
+          icon={RotateCcw}
+          href="/monthly-planning"
         />
         <KpiCard
-          title="Pending MD Approvals"
-          value={kpis.pendingMD}
-          subtitle="Plans awaiting MD"
-          icon={Shield}
+          title="Completed Plans"
+          value={kpis.completedPlans}
+          subtitle="Fully completed"
+          icon={CheckCircle2}
         />
         <KpiCard
           title="Notifications"
@@ -88,7 +89,7 @@ export function DemandSupplyDashboard({ kpis }) {
               Create a plan to begin the guided planning workflow — no seed data required.
             </p>
             <Link
-              href="/monthly-target-plans"
+              href="/monthly-planning"
               className="mt-6 inline-flex items-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
             >
               Create Monthly Target Plan
@@ -107,21 +108,22 @@ export function DemandSupplyDashboard({ kpis }) {
           </CardHeader>
           <CardContent>
             <p className="mb-4 text-sm text-slate-600">
-              Open the plan workspace to create targets, manage allocations, and track workflow progress.
+              Continue the guided monthly planning workflow — targets, allocations, review, and
+              submit.
             </p>
             <div className="flex flex-wrap gap-2">
               <Link
                 href={planWorkspacePath(plan.month, plan.year)}
                 className="inline-flex items-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
               >
-                Open Plan Workspace
+                Open Monthly Planning
               </Link>
               {plan.status === "md_approved" && (
                 <Link
-                  href={planStepPath("/workflow-status", plan.month, plan.year)}
+                  href={planStepPath("submit", plan.month, plan.year)}
                   className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50"
                 >
-                  Review &amp; Submit
+                  Finalize Plan
                 </Link>
               )}
             </div>

@@ -165,10 +165,10 @@ export function ArticleAllocationGroups({ plan, targets, models, articles, edita
           </div>
           {allBalanced ? (
             <Link
-              href={planStepPath("/workflow-status", plan.month, plan.year)}
+              href={planStepPath("review", plan.month, plan.year)}
               className={cn(buttonVariants(), "gap-2")}
             >
-              Continue to Review & Submit
+              Continue to Review
               <ArrowRight className="h-4 w-4" />
             </Link>
           ) : (
@@ -176,7 +176,7 @@ export function ArticleAllocationGroups({ plan, targets, models, articles, edita
               className={cn(buttonVariants(), "pointer-events-none gap-2 opacity-50")}
               aria-disabled
             >
-              Continue to Review & Submit
+              Continue to Review
               <ArrowRight className="h-4 w-4" />
             </span>
           )}

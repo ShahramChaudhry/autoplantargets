@@ -36,9 +36,9 @@ export function EmptyPlansGuide() {
         <p className="mt-2 max-w-md text-sm text-slate-500">
           Every planning workflow starts with a monthly target plan. Create one or choose an existing plan to continue.
         </p>
-        <Link href="/monthly-target-plans" className={cn(buttonVariants(), "mt-6 gap-2")}>
+        <Link href="/monthly-planning" className={cn(buttonVariants(), "mt-6 gap-2")}>
           <Plus className="h-4 w-4" />
-          Go to Monthly Target Plans
+          Go to Monthly Planning
         </Link>
       </CardContent>
     </Card>

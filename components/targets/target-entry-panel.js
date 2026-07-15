@@ -133,7 +133,7 @@ export function TargetEntryPanel({
 
   function handleMonthChange(slug) {
     if (slug && slug !== planPath) {
-      router.push(`/targets?plan=${slug}`);
+      router.push(`/monthly-planning/${slug}?step=targets`);
     }
   }
 
@@ -308,7 +308,7 @@ export function TargetEntryPanel({
             </Button>
           )}
           <Link
-            href={planStepPath("/model-allocations", plan.month, plan.year)}
+            href={planStepPath("models", plan.month, plan.year)}
             className={cn(buttonVariants({ size: "sm" }), "gap-1.5")}
           >
             Continue

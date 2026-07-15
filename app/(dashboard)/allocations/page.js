@@ -1,0 +1,32 @@
+import { Header } from "@/components/layout/header";
+import { RetailAllocationContent } from "@/components/allocations/retail-allocation-content";
+import { ExecutiveAllocationContent } from "@/components/allocations/executive-allocation-content";
+import { requirePageAccess } from "@/lib/auth";
+import { getActivePlan } from "@/lib/data";
+import { ROLES } from "@/lib/constants";
+
+export default async function AllocationsPage({ searchParams }) {
+  const user = await requirePageAccess("/allocations");
+  const params = await searchParams;
+  const plan = await getActivePlan(params?.plan);
+  const isRetailHead = user.role === ROLES.NPM;
+
+  return (
+    <>
+      <Header
+        title="Allocations"
+        description={
+          isRetailHead
+            ? "Allocate approved Retail targets across Sales Offices"
+            : "Allocate Sales Office targets to Sales Executives and resolve reconciliation"
+        }
+      />
+
+      {isRetailHead ? (
+        <RetailAllocationContent plan={plan} user={user} />
+      ) : (
+        <ExecutiveAllocationContent plan={plan} />
+      )}
+    </>
+  );
+}

@@ -28,11 +28,11 @@ export function PlanContextBanner({ plan, basePath }) {
         </Badge>
       </div>
       <div className="flex items-center gap-3 text-sm">
-        <Link href={`/monthly-target-plans/${slug}`} className="text-slate-600 hover:text-slate-900">
+        <Link href={`/monthly-planning/${slug}`} className="text-slate-600 hover:text-slate-900">
           Plan workspace
         </Link>
         <ChevronRight className="h-4 w-4 text-slate-300" />
-        <Link href="/monthly-target-plans" className="font-medium text-slate-900 hover:underline">
+        <Link href="/monthly-planning" className="font-medium text-slate-900 hover:underline">
           Switch plan
         </Link>
         {basePath && (

@@ -1,16 +1,21 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { ModelAllocationForm } from "@/components/allocations/model-allocation-form";
 import { InlineUnitsEditor } from "@/components/allocations/inline-units-editor";
 import { DeleteAllocationButton } from "@/components/allocations/delete-allocation-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { planStepPath } from "@/lib/plans";
 import { cn } from "@/lib/utils";
-import { ArrowRight, AlertCircle } from "lucide-react";
+import { ArrowRight, SkipForward, AlertCircle } from "lucide-react";
 
 export function ModelAllocationGroups({ plan, targets, allocations, editable = true }) {
+  const router = useRouter();
+  const [skipping, setSkipping] = useState(false);
+
   const groups = targets.map((target) => {
     const models = allocations.filter((a) => a.target_id === target.id);
     const allocated = models.reduce((sum, m) => sum + m.units, 0);
@@ -20,6 +25,26 @@ export function ModelAllocationGroups({ plan, targets, allocations, editable = t
 
   const allBalanced = groups.length > 0 && groups.every((g) => g.remaining === 0);
   const hasOverAllocation = groups.some((g) => g.remaining < 0);
+
+  async function handleSkipArticles() {
+    setSkipping(true);
+    try {
+      const res = await fetch("/api/plans/article-skip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ periodId: plan.id, skipped: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed to skip article allocation");
+        return;
+      }
+      router.push(planStepPath("review", plan.month, plan.year));
+      router.refresh();
+    } finally {
+      setSkipping(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -124,13 +149,27 @@ export function ModelAllocationGroups({ plan, targets, allocations, editable = t
             )}
           </div>
           {allBalanced ? (
-            <Link
-              href={planStepPath("/article-allocations", plan.month, plan.year)}
-              className={cn(buttonVariants(), "gap-2")}
-            >
-              Continue to Article Allocation
-              <ArrowRight className="h-4 w-4" />
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              {editable && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={handleSkipArticles}
+                  disabled={skipping}
+                >
+                  <SkipForward className="h-4 w-4" />
+                  {skipping ? "Skipping..." : "Skip Article Allocation"}
+                </Button>
+              )}
+              <Link
+                href={planStepPath("articles", plan.month, plan.year)}
+                className={cn(buttonVariants(), "gap-2")}
+              >
+                Continue to Article Allocation
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
           ) : (
             <span
               className={cn(buttonVariants(), "pointer-events-none gap-2 opacity-50")}

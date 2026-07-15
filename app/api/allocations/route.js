@@ -242,6 +242,16 @@ export async function POST(request) {
     planningPeriodId: periodId || guard.period?.id,
   });
 
+  if (type === "articles") {
+    const clearPeriodId = periodId || guard.period?.id;
+    if (clearPeriodId) {
+      await supabase
+        .from("planning_periods")
+        .update({ article_allocation_skipped: false })
+        .eq("id", clearPeriodId);
+    }
+  }
+
   return NextResponse.json({ success: true, data: row });
 }
 

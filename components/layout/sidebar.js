@@ -16,6 +16,7 @@ import {
   Activity,
   ClipboardList,
   Shield,
+  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ROLE_LABELS } from "@/lib/constants";
@@ -35,6 +36,7 @@ const iconMap = {
   Activity,
   ClipboardList,
   Shield,
+  Settings,
 };
 
 export function Sidebar({ user, navItems }) {

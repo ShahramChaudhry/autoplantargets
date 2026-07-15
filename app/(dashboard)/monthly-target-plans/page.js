@@ -1,19 +1,6 @@
-import { Header } from "@/components/layout/header";
-import { MonthlyPlansClient } from "@/components/plan/monthly-plans-client";
-import { requirePageAccess } from "@/lib/auth";
-import { getPlansWithSummaries } from "@/lib/data";
+import { redirect } from "next/navigation";
 
-export default async function MonthlyTargetPlansPage() {
-  await requirePageAccess("/monthly-target-plans");
-  const plans = await getPlansWithSummaries();
-
-  return (
-    <>
-      <Header
-        title="Monthly Target Plans"
-        description="Create and manage monthly planning cycles for your organization"
-      />
-      <MonthlyPlansClient plans={plans} />
-    </>
-  );
+/** @deprecated Use /monthly-planning */
+export default function LegacyMonthlyTargetPlansPage() {
+  redirect("/monthly-planning");
 }

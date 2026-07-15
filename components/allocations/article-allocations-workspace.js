@@ -27,7 +27,8 @@ export function ArticleAllocationsWorkspace({ plans, plan, targets, models, arti
         <CreatePlanModal
           open={modalOpen}
           onClose={() => setModalOpen(false)}
-          redirectBase="/article-allocations"
+          redirectBase="/monthly-planning"
+
         />
       </>
     );
@@ -50,7 +51,7 @@ export function ArticleAllocationsWorkspace({ plans, plan, targets, models, arti
           title="No model allocations have been created yet."
           description="Complete model allocation for this plan, then return here to assign article codes."
           actionLabel="Go to Model Allocation"
-          actionHref={planStepPath("/model-allocations", plan.month, plan.year)}
+          actionHref={planStepPath("models", plan.month, plan.year)}
         />
       ) : (
         <ArticleAllocationGroups

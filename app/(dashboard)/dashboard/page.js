@@ -6,10 +6,18 @@ import {
   MDDashboard,
   NPMDashboard,
   BranchManagerDashboard,
+  ITAdminDashboard,
 } from "@/components/dashboard/role-dashboards";
 import { requirePageAccess } from "@/lib/auth";
 import { ROLES, ROLE_LABELS } from "@/lib/constants";
-import { getActivePlan, getDemandSupplyDashboardKPIs, getRoleDashboardData, getQueuePlan, queuePlanHref } from "@/lib/data";
+import {
+  getActivePlan,
+  getDemandSupplyDashboardKPIs,
+  getRoleDashboardData,
+  getQueuePlan,
+  queuePlanHref,
+  getITAdminDashboardData,
+} from "@/lib/data";
 
 export default async function DashboardPage() {
   const user = await requirePageAccess("/dashboard");
@@ -23,6 +31,19 @@ export default async function DashboardPage() {
           description="Monthly target planning overview"
         />
         <DemandSupplyDashboard kpis={kpis} />
+      </>
+    );
+  }
+
+  if (user.role === ROLES.IT_ADMIN) {
+    const adminData = await getITAdminDashboardData();
+    return (
+      <>
+        <Header
+          title={`Welcome, ${user.name}`}
+          description={`${ROLE_LABELS[user.role]} dashboard`}
+        />
+        <ITAdminDashboard {...adminData} />
       </>
     );
   }
@@ -48,6 +69,8 @@ export default async function DashboardPage() {
               period={plan}
               stats={roleData?.stats}
               pendingReview={roleData?.pendingReview}
+              approvedToday={roleData?.approvedToday}
+              returnedPlans={roleData?.returnedPlans}
               queueHref={queueHref}
             />
           )}
@@ -56,6 +79,7 @@ export default async function DashboardPage() {
               period={plan}
               stats={roleData?.stats}
               pendingApproval={roleData?.pendingApproval}
+              approvedPlans={roleData?.approvedPlans}
               queueHref={queueHref}
             />
           )}
@@ -65,6 +89,8 @@ export default async function DashboardPage() {
               stats={roleData?.stats}
               retailTotal={roleData?.retailTotal ?? 0}
               officeTotal={roleData?.officeTotal ?? 0}
+              pendingRetail={roleData?.pendingRetail}
+              completedAllocations={roleData?.completedAllocations}
             />
           )}
           {user.role === ROLES.BRANCH_MANAGER && (
@@ -74,6 +100,8 @@ export default async function DashboardPage() {
               officeTotal={roleData?.officeTotal ?? 0}
               execTotal={roleData?.execTotal ?? 0}
               reconciliationPassed={roleData?.reconciliationPassed}
+              pendingExecutive={roleData?.pendingExecutive}
+              reconciliationIssues={roleData?.reconciliationIssues}
             />
           )}
         </>

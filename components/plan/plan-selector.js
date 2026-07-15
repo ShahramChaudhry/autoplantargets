@@ -3,7 +3,7 @@
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { planLabel, planSlug } from "@/lib/plans";
+import { planLabel, planSlug, PLANNING_BASE } from "@/lib/plans";
 
 export function PlanSelector({ plans, currentPlan }) {
   const router = useRouter();
@@ -13,8 +13,19 @@ export function PlanSelector({ plans, currentPlan }) {
   const currentSlug = currentPlan ? planSlug(currentPlan.month, currentPlan.year) : "";
 
   function handleChange(e) {
+    const nextSlug = e.target.value;
+    const step = searchParams.get("step");
+
+    if (pathname.startsWith(PLANNING_BASE)) {
+      const next = step
+        ? `${PLANNING_BASE}/${nextSlug}?step=${step}`
+        : `${PLANNING_BASE}/${nextSlug}`;
+      router.push(next);
+      return;
+    }
+
     const params = new URLSearchParams(searchParams.toString());
-    params.set("plan", e.target.value);
+    params.set("plan", nextSlug);
     router.push(`${pathname}?${params.toString()}`);
   }
 
