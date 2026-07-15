@@ -51,9 +51,35 @@ export function getSalesGroupByName(name) {
   return salesGroups.find((g) => g.name === name) || null;
 }
 
+/** Normalize legacy string office values to { code, name, label }. */
+export function normalizeOffice(office) {
+  if (!office) return null;
+  if (typeof office === "string") {
+    for (const list of Object.values(salesOffices)) {
+      const match = list.find((o) => o.name === office);
+      if (match) return match;
+    }
+    return { code: office.slice(0, 4).toUpperCase(), name: office, label: office };
+  }
+  return office;
+}
+
+export function getOfficeName(office) {
+  return normalizeOffice(office)?.name || office;
+}
+
+export function getOfficeCode(office) {
+  return normalizeOffice(office)?.code || "";
+}
+
+export function getOfficeLabel(office) {
+  const n = normalizeOffice(office);
+  return n?.label || n?.name || office || "";
+}
+
 export function getSalesOffices(division) {
   const name = typeof division === "string" ? division : division?.name;
-  return salesOffices[name] || [];
+  return (salesOffices[name] || []).map(normalizeOffice);
 }
 
 /**
@@ -70,13 +96,29 @@ export function getSalesOfficesForUser(user, division) {
   const allowed = scope.offices[divisionName];
   if (!allowed) return [];
   if (allowed === "all") return all;
-  return all.filter((office) => allowed.includes(office));
+  return all.filter((office) => allowed.includes(office.name));
+}
+
+/** Union of offices across divisions (deduped by name) for multi-division grids. */
+export function getUnionOfficesForUser(user, divisionList) {
+  const seen = new Set();
+  const result = [];
+  for (const division of divisionList) {
+    for (const office of getSalesOfficesForUser(user, division)) {
+      if (!seen.has(office.name)) {
+        seen.add(office.name);
+        result.push(office);
+      }
+    }
+  }
+  return result;
 }
 
 export function getSalesExecutives(division, salesOffice) {
   const divisionName = typeof division === "string" ? division : division?.name;
-  if (!divisionName || !salesOffice) return [];
-  return salesExecutives[divisionName]?.[salesOffice] || [];
+  const officeName = getOfficeName(salesOffice);
+  if (!divisionName || !officeName) return [];
+  return salesExecutives[divisionName]?.[officeName] || [];
 }
 
 export function getModels(division, salesGroup) {
@@ -107,9 +149,9 @@ export function buildTargetGridRows(division, salesGroup, salesOffice = null, of
 
   let offices;
   if (salesOffice) {
-    offices = [salesOffice];
+    offices = [normalizeOffice(salesOffice)];
   } else if (officesOverride) {
-    offices = officesOverride;
+    offices = officesOverride.map(normalizeOffice);
   } else if (config.includeSalesOffices) {
     offices = getSalesOffices(divisionName);
   } else {
@@ -120,9 +162,9 @@ export function buildTargetGridRows(division, salesGroup, salesOffice = null, of
   for (const model of modelList) {
     for (const office of offices) {
       rows.push({
-        key: office ? `${model}::${office}` : model,
+        key: office ? rowKey(model, office.name) : model,
         model,
-        salesOffice: office,
+        salesOffice: office?.name || null,
         includeSalesOffice: Boolean(office),
       });
     }
@@ -130,15 +172,13 @@ export function buildTargetGridRows(division, salesGroup, salesOffice = null, of
   return rows;
 }
 
-export function rowKey(model, salesOffice) {
-  return salesOffice ? `${model}::${salesOffice}` : model;
+export function rowKey(model, salesOffice, articleCode = null) {
+  const officeName = getOfficeName(salesOffice);
+  if (articleCode) return `${model}::${articleCode}::${officeName}`;
+  return officeName ? `${model}::${officeName}` : model;
 }
 
-/** Short office label for dense column headers. */
+/** @deprecated Use getOfficeLabel */
 export function getOfficeShortLabel(office) {
-  if (!office) return "";
-  return office
-    .replace(/^Toyota-/, "")
-    .replace(/^Honda-/, "")
-    .trim();
+  return getOfficeLabel(office);
 }

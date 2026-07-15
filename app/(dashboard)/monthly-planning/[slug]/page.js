@@ -7,30 +7,16 @@ import { getPlanningPeriods } from "@/lib/data";
 import { findPlanBySlug, planLabel, normalizeStepKey } from "@/lib/plans";
 import { DEMAND_SUPPLY_WORKFLOW_STEPS } from "@/lib/constants";
 
+const LEGACY_TO_TARGETS = new Set(["plan", "models", "articles", "review"]);
+
 const STEP_META = {
-  plan: {
-    title: (label) => label,
-    description: "Monthly target plan",
-  },
   targets: {
     title: () => "Monthly Planning",
-    description: "Select month, division, and sales group — then enter targets in the grid",
-  },
-  models: {
-    title: () => "Model Allocation",
-    description: "Distribute brand targets across vehicle models",
-  },
-  articles: {
-    title: () => "Article Allocation",
-    description: "Break down model targets by article code (optional)",
-  },
-  review: {
-    title: () => "Review",
-    description: "Review plan completeness before submission",
+    description: "Select month and sales group, then enter targets by division and model",
   },
   submit: {
-    title: () => "Submit",
-    description: "Submit your plan for B2B and MD approval",
+    title: () => "Review & Submit",
+    description: "Review your plan and submit for B2B approval",
   },
 };
 
@@ -40,8 +26,7 @@ export default async function MonthlyPlanningPlanPage({ params, searchParams }) 
   const query = await searchParams;
   let step = normalizeStepKey(query?.step || "targets");
 
-  // Always land on target entry — skip plan list / workspace hubs
-  if (step === "plan") {
+  if (LEGACY_TO_TARGETS.has(step)) {
     redirect(`/monthly-planning/${slug}?step=targets`);
   }
 
@@ -58,8 +43,8 @@ export default async function MonthlyPlanningPlanPage({ params, searchParams }) 
   }
 
   const label = planLabel(plan.month, plan.year);
-  const meta = STEP_META[step];
-  const showStepper = step !== "targets";
+  const meta = STEP_META[step] || STEP_META.targets;
+  const showStepper = step === "submit";
 
   return (
     <>

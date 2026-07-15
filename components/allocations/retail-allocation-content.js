@@ -46,7 +46,9 @@ export async function RetailAllocationContent({ plan, user }) {
   const progress = getRetailAllocationProgress(retailTotal, officeTotal);
   const isEditable = isRetailAllocationEditable(plan.status);
   const isComplete = isRetailAllocationCompleteStatus(plan.status);
-  const officeOptions = [...getSalesOffices("Toyota"), ...getSalesOffices("Honda")];
+  const officeOptions = [...getSalesOffices("Toyota"), ...getSalesOffices("Honda")].map(
+    (o) => o.name
+  );
 
   const { data: completionLog } = isComplete
     ? await supabase
