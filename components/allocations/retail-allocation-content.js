@@ -1,14 +1,8 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PlanContextBanner } from "@/components/plan/plan-context-banner";
-import { RetailAllocationProgress } from "@/components/allocations/retail-allocation-progress";
-import { RetailAllocationLockBanner } from "@/components/allocations/retail-allocation-lock-banner";
-import { RetailAllocationCompletion } from "@/components/allocations/retail-allocation-completion";
 import { CompleteRetailAllocationAction } from "@/components/workflow/complete-retail-allocation-action";
 import { NpmOfficeAllocationPanel } from "@/components/allocations/npm-office-allocation-panel";
 import { createClient } from "@/lib/supabase/server";
 import {
   getRetailAllocationProgress,
-  isRetailAllocationCompleteStatus,
   isRetailAllocationEditable,
   fetchRetailAllocationTotals,
 } from "@/lib/retail-allocation";
@@ -18,11 +12,9 @@ import { planLabel } from "@/lib/plans";
 export async function RetailAllocationContent({ plan, user }) {
   if (!plan) {
     return (
-      <Card>
-        <CardContent className="py-8 text-center text-sm text-slate-500">
-          No monthly target plan is available for retail allocation yet.
-        </CardContent>
-      </Card>
+      <div className="border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+        No monthly target plan is available for retail allocation yet.
+      </div>
     );
   }
 
@@ -38,61 +30,16 @@ export async function RetailAllocationContent({ plan, user }) {
   const { retailTarget, allocated } = await fetchRetailAllocationTotals(supabase, plan.id);
   const progress = getRetailAllocationProgress(retailTarget, allocated);
   const isEditable = isRetailAllocationEditable(plan.status);
-  const isComplete = isRetailAllocationCompleteStatus(plan.status);
-
-  const { data: completionLog } = isComplete
-    ? await supabase
-        .from("audit_logs")
-        .select("created_at, users(name, role)")
-        .eq("planning_period_id", plan.id)
-        .eq("action", "complete_retail_allocation")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle()
-    : { data: null };
 
   return (
     <div className="space-y-6">
-      <PlanContextBanner plan={plan} basePath="/allocations" />
-
-      <RetailAllocationProgress
-        retailTarget={retailTarget}
-        allocated={allocated}
-        isComplete={isComplete}
+      <NpmOfficeAllocationPanel
+        plan={plan}
+        targets={targets || []}
+        periods={periods}
+        editable={isEditable}
+        user={user}
       />
-
-      {isComplete && (
-        <>
-          <RetailAllocationCompletion
-            completedBy={completionLog?.users?.name || user.name}
-            completedByRole={completionLog?.users?.role || user.role}
-            completedAt={completionLog?.created_at}
-          />
-          <RetailAllocationLockBanner />
-        </>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            Sales Office Allocation — {planLabel(plan.month, plan.year)}
-          </CardTitle>
-          <p className="text-sm text-slate-500">
-            Split Demand &amp; Supply model totals across sales offices. For models with articles,
-            choose model-level or article-level allocation (one source at a time). Brand rows are
-            calculated roll-ups.
-          </p>
-        </CardHeader>
-        <CardContent>
-          <NpmOfficeAllocationPanel
-            plan={plan}
-            targets={targets || []}
-            periods={periods}
-            editable={isEditable}
-            user={user}
-          />
-        </CardContent>
-      </Card>
 
       {isEditable && (
         <CompleteRetailAllocationAction

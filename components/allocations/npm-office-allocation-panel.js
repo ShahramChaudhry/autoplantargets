@@ -486,9 +486,8 @@ export function NpmOfficeAllocationPanel({
       </div>
 
       <p className="text-xs text-slate-500">
-        For models with articles, choose either model-level allocation (e.g. Corolla = 50) or
-        article-level allocation (articles sum to the model). Only one source can be active per
-        model. Brand totals are always calculated.
+        Enter units on the model row, or break them down by article — one source per model. Brand
+        totals are calculated automatically.
       </p>
 
       {pendingSwitch && (
