@@ -202,9 +202,10 @@ export function NpmOfficeAllocationPanel({
           officeSum += parseInt(values[rowKey(model, office.name)], 10) || 0;
         }
 
-        // Only over-allocation is an error; under-allocation is OK while editing
+        // Offices may not exceed the model D&S total (partial under is OK)
         if (officeSum > dsTotal) {
           errors.push({
+            type: "office_over",
             division: division.name,
             model,
             dsTotal,
@@ -212,9 +213,102 @@ export function NpmOfficeAllocationPanel({
             diff: officeSum - dsTotal,
           });
         }
+
+        // Articles under a model must add up to that model's D&S total
+        if (expandedArticles.has(articleRowKey(division.name, model))) {
+          const articles = getArticleCodesForModel(division.name, model);
+          let articleSum = 0;
+          let hasArticleValue = false;
+          for (const code of articles) {
+            for (const office of divOffices) {
+              const units =
+                parseInt(articleValues[rowKey(model, office.name, code)], 10) || 0;
+              if (units > 0) hasArticleValue = true;
+              articleSum += units;
+            }
+          }
+          if (hasArticleValue && articleSum !== dsTotal) {
+            errors.push({
+              type: "article_mismatch",
+              division: division.name,
+              model,
+              dsTotal,
+              articleSum,
+              diff: articleSum - dsTotal,
+            });
+          }
+        }
       }
     }
     return errors;
+  }, [
+    divisions,
+    salesGroup,
+    targets,
+    values,
+    articleValues,
+    expandedArticles,
+    officesForDivision,
+  ]);
+
+  const remainingByModel = useMemo(() => {
+    if (!salesGroup) return [];
+    const rows = [];
+    for (const division of divisions) {
+      const models = getModels(division, salesGroup);
+      const divOffices = officesForDivision(division);
+      for (const model of models) {
+        const dsTotal = dsModelTotal(targets, division.name, salesGroup.name, model);
+        if (dsTotal <= 0) continue;
+        let officeSum = 0;
+        for (const office of divOffices) {
+          officeSum += parseInt(values[rowKey(model, office.name)], 10) || 0;
+        }
+        if (officeSum > 0 && officeSum < dsTotal) {
+          rows.push({
+            division: division.name,
+            model,
+            dsTotal,
+            officeSum,
+            remaining: dsTotal - officeSum,
+          });
+        }
+      }
+    }
+    return rows;
+  }, [divisions, salesGroup, targets, values, officesForDivision]);
+
+  const brandRollups = useMemo(() => {
+    if (!salesGroup) return [];
+    return divisions
+      .map((division) => {
+        const models = getModels(division, salesGroup).filter(
+          (model) => dsModelTotal(targets, division.name, salesGroup.name, model) > 0
+        );
+        if (models.length === 0) return null;
+        const dsBrand = models.reduce(
+          (s, model) => s + dsModelTotal(targets, division.name, salesGroup.name, model),
+          0
+        );
+        const divOffices = officesForDivision(division);
+        const allocatedBrand = models.reduce((s, model) => {
+          return (
+            s +
+            divOffices.reduce(
+              (os, office) =>
+                os + (parseInt(values[rowKey(model, office.name)], 10) || 0),
+              0
+            )
+          );
+        }, 0);
+        return {
+          division: division.name,
+          dsBrand,
+          allocatedBrand,
+          remaining: dsBrand - allocatedBrand,
+        };
+      })
+      .filter(Boolean);
   }, [divisions, salesGroup, targets, values, officesForDivision]);
 
   const mismatchLookup = useMemo(() => {
@@ -393,9 +487,10 @@ export function NpmOfficeAllocationPanel({
       </div>
 
       <p className="text-xs text-slate-500">
-        Models and totals come from Demand &amp; Supply. Split each model across sales offices.
-        Partial allocations are fine to save; only going over the D&amp;S total is blocked. Full
-        match is required before Mark Retail Allocation Complete.
+        Hierarchical totals: models under a brand add up to the brand D&amp;S total (e.g. Corolla +
+        Camry + Yaris = Toyota 120). Office columns for each model must equal that model&apos;s
+        D&amp;S total when fully allocated. If you use articles, those articles must add up to the
+        model total. Partial office fills are OK to save; going over is blocked.
       </p>
 
       {(error || message) && (
@@ -408,18 +503,49 @@ export function NpmOfficeAllocationPanel({
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           <div className="flex items-start gap-2">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <div>
-              <p className="font-medium">Over-allocated vs Demand &amp; Supply</p>
-              <ul className="mt-1 space-y-1 text-xs">
-                {mismatchErrors.slice(0, 6).map((e) => (
-                  <li key={`${e.division}-${e.model}`}>
-                    {e.division} {e.model}: D&amp;S {e.dsTotal} vs offices {e.officeSum} (+
-                    {e.diff})
-                  </li>
-                ))}
-              </ul>
+            <div className="space-y-1">
+              {mismatchErrors.slice(0, 8).map((e) => (
+                <p key={`${e.type}-${e.division}-${e.model}`} className="text-xs">
+                  {e.type === "article_mismatch" ? (
+                    <>
+                      {e.division} {e.model} articles: must add to model {e.dsTotal}, currently{" "}
+                      {e.articleSum} ({e.diff > 0 ? "+" : ""}
+                      {e.diff})
+                    </>
+                  ) : (
+                    <>
+                      {e.division} {e.model}: offices {e.officeSum} exceed D&amp;S {e.dsTotal} (+
+                      {e.diff})
+                    </>
+                  )}
+                </p>
+              ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {remainingByModel.length > 0 && mismatchErrors.length === 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-medium">Still remaining to allocate</p>
+          <ul className="mt-1 space-y-0.5 text-xs">
+            {remainingByModel.slice(0, 6).map((r) => (
+              <li key={`${r.division}-${r.model}`}>
+                {r.division} {r.model}: {r.officeSum} of {r.dsTotal} ({r.remaining} left)
+              </li>
+            ))}
+          </ul>
+          {brandRollups.some((b) => b.remaining > 0 && b.allocatedBrand > 0) && (
+            <ul className="mt-2 space-y-0.5 border-t border-amber-200 pt-2 text-xs">
+              {brandRollups
+                .filter((b) => b.remaining > 0 && b.allocatedBrand > 0)
+                .map((b) => (
+                  <li key={b.division}>
+                    {b.division} brand: {b.allocatedBrand} of {b.dsBrand} ({b.remaining} left)
+                  </li>
+                ))}
+            </ul>
+          )}
         </div>
       )}
 

@@ -456,8 +456,9 @@ export function TargetEntryPanel({
       </div>
 
       <p className="text-xs text-slate-500">
-        Enter Brand → Model targets for the selected Sales Group. Optional article breakdown must
-        match each model total. Sales office allocation is handled later by Retail Head.
+        Enter Brand → Model targets for the selected Sales Group. Models under a brand add up to
+        that brand&apos;s total. If you break a model into articles, those articles must add up to
+        the model total. Sales office allocation is handled later by Retail Head.
       </p>
 
       {(error || message) && (
