@@ -294,7 +294,7 @@ export function TargetEntryPanel({ plan, targets, periods = [], editable = true 
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 xl:items-end">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
             <div className="space-y-2">
               <Label>Division</Label>
               <Select
@@ -324,7 +324,7 @@ export function TargetEntryPanel({ plan, targets, periods = [], editable = true 
               </Select>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 sm:col-span-2">
               <Label>Sales Group</Label>
               <Select
                 value={salesGroupCode}
@@ -333,13 +333,15 @@ export function TargetEntryPanel({ plan, targets, periods = [], editable = true 
               >
                 {salesGroups.map((g) => (
                   <option key={g.code} value={g.code}>
-                    {g.name}
+                    {g.code} — {g.name}
                   </option>
                 ))}
               </Select>
             </div>
+          </div>
 
-            <div className="space-y-2">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
+            <div className="space-y-2 sm:col-span-2">
               <Label>Sales Office</Label>
               <Select
                 value={salesOffice}
@@ -355,7 +357,7 @@ export function TargetEntryPanel({ plan, targets, periods = [], editable = true 
               </Select>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 sm:col-span-2">
               <Label>Sales Executive</Label>
               <Select
                 value={salesExecutiveId}
@@ -370,14 +372,16 @@ export function TargetEntryPanel({ plan, targets, periods = [], editable = true 
                 ))}
               </Select>
             </div>
+          </div>
 
-            {editable && (
+          {editable && (
+            <div className="flex justify-end">
               <Button type="button" onClick={generateGrid} className="gap-2">
                 <Grid3X3 className="h-4 w-4" />
                 Generate Grid
               </Button>
-            )}
-          </div>
+            </div>
+          )}
 
           {error && <p className="text-sm text-red-600">{error}</p>}
           {message && <p className="text-sm text-emerald-700">{message}</p>}
