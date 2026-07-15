@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { DemandSupplyStepper } from "@/components/workflow/demand-supply-stepper";
+import { PlanLifecycleCard } from "@/components/workflow/plan-lifecycle-card";
 import { PlanningStepContent } from "@/components/plan/planning-step-content";
 import { requirePageAccess } from "@/lib/auth";
 import { getPlanningPeriods } from "@/lib/data";
@@ -44,12 +45,12 @@ export default async function MonthlyPlanningPlanPage({ params, searchParams }) 
 
   const label = planLabel(plan.month, plan.year);
   const meta = STEP_META[step] || STEP_META.targets;
-  const showStepper = step === "submit";
 
   return (
     <>
       <Header title={meta.title(label)} description={meta.description} />
-      {showStepper && <DemandSupplyStepper currentStep={step} plan={plan} />}
+      <PlanLifecycleCard plan={plan} />
+      <DemandSupplyStepper currentStep={step} plan={plan} />
       <PlanningStepContent step={step} plan={plan} periods={periods} user={user} />
     </>
   );

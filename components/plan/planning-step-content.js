@@ -2,15 +2,12 @@ import Link from "next/link";
 import { TargetEntryPanel } from "@/components/targets/target-entry-panel";
 import { PlanLockBanner } from "@/components/plan/plan-lock-banner";
 import { EmptyPlansGuide } from "@/components/plan/workflow-guide";
-import { WorkflowPipeline } from "@/components/workflow/workflow-pipeline";
 import { WorkflowActions } from "@/components/workflow-actions";
 import { FinalizePlanAction } from "@/components/workflow/finalize-plan-action";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge, getStatusBadgeVariant } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
 import { isPlanEditable } from "@/lib/workflow";
-import { STATUS_LABELS } from "@/lib/constants";
 import { planLabel, planStepPath } from "@/lib/plans";
 import { getDashboardStats } from "@/lib/data";
 import { cn } from "@/lib/utils";
@@ -94,16 +91,9 @@ async function SubmitStep({ plan, user }) {
 
       <Card>
         <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle>{planLabel(plan.month, plan.year)} — Review & Submit</CardTitle>
-            <Badge variant={getStatusBadgeVariant(plan.status)}>
-              {STATUS_LABELS[plan.status]}
-            </Badge>
-          </div>
+          <CardTitle>{planLabel(plan.month, plan.year)} — Review & Submit</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          <WorkflowPipeline status={plan.status} />
-
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="rounded-lg bg-slate-50 p-4">
               <p className="text-xs text-slate-500">Target Lines</p>

@@ -1,4 +1,5 @@
 import { Header } from "@/components/layout/header";
+import { PlanLifecycleCard } from "@/components/workflow/plan-lifecycle-card";
 import { RetailAllocationContent } from "@/components/allocations/retail-allocation-content";
 import { ExecutiveAllocationContent } from "@/components/allocations/executive-allocation-content";
 import { requirePageAccess } from "@/lib/auth";
@@ -21,6 +22,8 @@ export default async function AllocationsPage({ searchParams }) {
             : "Allocate Sales Office targets to Sales Executives and resolve reconciliation"
         }
       />
+
+      <PlanLifecycleCard plan={plan} />
 
       {isRetailHead ? (
         <RetailAllocationContent plan={plan} user={user} />
