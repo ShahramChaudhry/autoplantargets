@@ -84,6 +84,25 @@ export async function POST(request) {
         savedIds.push(inserted.id);
         idByKey[cellKey] = inserted.id;
       }
+
+      // D&S model totals are office-agnostic: drop legacy Model × Office target rows
+      if (!row.sales_office) {
+        const { data: sameModelRows } = await supabase
+          .from("targets")
+          .select("id, sales_office")
+          .eq("planning_period_id", periodId)
+          .eq("brand", row.brand)
+          .eq("sales_group", row.sales_group)
+          .eq("model", row.model);
+
+        const legacyIds = (sameModelRows || [])
+          .filter((r) => r.sales_office)
+          .map((r) => r.id)
+          .filter(Boolean);
+        if (legacyIds.length) {
+          await supabase.from("targets").delete().in("id", legacyIds);
+        }
+      }
     }
 
     // Sync model allocations from saved model-level targets

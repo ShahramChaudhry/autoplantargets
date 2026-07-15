@@ -173,8 +173,10 @@ export function buildTargetGridRows(division, salesGroup, salesOffice = null, of
 }
 
 export function rowKey(model, salesOffice, articleCode = null) {
-  const officeName = getOfficeName(salesOffice);
-  if (articleCode) return `${model}::${articleCode}::${officeName}`;
+  const officeName = getOfficeName(salesOffice) || null;
+  if (articleCode) {
+    return officeName ? `${model}::${articleCode}::${officeName}` : `${model}::${articleCode}`;
+  }
   return officeName ? `${model}::${officeName}` : model;
 }
 

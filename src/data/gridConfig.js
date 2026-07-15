@@ -1,15 +1,12 @@
 /**
- * Per-division grid layout configuration.
- * includeSalesOffices: true  → rows = Model × Sales Office
- * includeSalesOffices: false → rows = Model only
- *
- * Swap these flags to change Honda (or any division) without new components.
+ * Per-division grid layout for Demand & Supply.
+ * Sales office allocation is NPM's job — D&S stays Brand × Sales Group × Model.
  */
 export const divisionGridConfig = {
   Toyota: {
-    includeSalesOffices: true,
+    includeSalesOffices: false,
   },
   Honda: {
-    includeSalesOffices: true,
+    includeSalesOffices: false,
   },
 };
