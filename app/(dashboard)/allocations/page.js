@@ -28,7 +28,7 @@ export default async function AllocationsPage({ searchParams }) {
       {isRetailHead ? (
         <RetailAllocationContent plan={plan} user={user} />
       ) : (
-        <ExecutiveAllocationContent plan={plan} />
+        <ExecutiveAllocationContent plan={plan} user={user} />
       )}
     </>
   );

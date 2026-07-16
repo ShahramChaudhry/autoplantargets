@@ -35,6 +35,38 @@ BEGIN
   ) THEN
     ALTER TABLE planning_periods
       ADD COLUMN IF NOT EXISTS article_allocation_skipped BOOLEAN NOT NULL DEFAULT false;
+
+    -- Sales Executive × Model allocation table (Branch Manager)
+    CREATE TABLE IF NOT EXISTS sales_exec_targets (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      planning_period_id UUID NOT NULL REFERENCES planning_periods(id) ON DELETE CASCADE,
+      sales_group TEXT NOT NULL,
+      sales_office TEXT NOT NULL,
+      sales_exec_code TEXT NOT NULL,
+      sales_exec_name TEXT,
+      brand TEXT,
+      model TEXT NOT NULL,
+      article_code TEXT,
+      target_units INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'draft'
+        CHECK (status IN ('not_started', 'draft', 'completed', 'reopened')),
+      created_by UUID,
+      updated_by UUID,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    DROP INDEX IF EXISTS sales_exec_targets_unique_leaf;
+    CREATE UNIQUE INDEX sales_exec_targets_unique_leaf
+      ON sales_exec_targets (
+        planning_period_id,
+        sales_group,
+        sales_office,
+        sales_exec_code,
+        COALESCE(brand, ''),
+        model,
+        COALESCE(article_code, '')
+      );
   END IF;
 END $$;
 
@@ -84,6 +116,7 @@ BEGIN
     'article_allocations',
     'sales_office_allocations',
     'executive_allocations',
+    'sales_exec_targets',
     'notifications',
     'audit_logs',
     'users',

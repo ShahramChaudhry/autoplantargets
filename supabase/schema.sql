@@ -132,7 +132,7 @@ CREATE TABLE sales_office_allocations (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Executive allocations
+-- Executive allocations (legacy flat units — kept for compatibility)
 CREATE TABLE executive_allocations (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   sales_office_allocation_id UUID NOT NULL REFERENCES sales_office_allocations(id) ON DELETE CASCADE,
@@ -141,6 +141,40 @@ CREATE TABLE executive_allocations (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Sales Executive × Model targets (Branch Manager leaf allocations)
+CREATE TABLE sales_exec_targets (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  planning_period_id UUID NOT NULL REFERENCES planning_periods(id) ON DELETE CASCADE,
+  sales_group TEXT NOT NULL,
+  sales_office TEXT NOT NULL,
+  sales_exec_code TEXT NOT NULL,
+  sales_exec_name TEXT,
+  brand TEXT,
+  model TEXT NOT NULL,
+  article_code TEXT,
+  target_units INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'draft'
+    CHECK (status IN ('not_started', 'draft', 'completed', 'reopened')),
+  created_by UUID,
+  updated_by UUID,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX sales_exec_targets_unique_leaf
+  ON sales_exec_targets (
+    planning_period_id,
+    sales_group,
+    sales_office,
+    sales_exec_code,
+    COALESCE(brand, ''),
+    model,
+    COALESCE(article_code, '')
+  );
+
+CREATE INDEX idx_sales_exec_targets_period_office
+  ON sales_exec_targets (planning_period_id, sales_office);
 
 -- Notifications
 CREATE TABLE notifications (
@@ -223,6 +257,7 @@ ALTER TABLE model_allocations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE article_allocations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sales_office_allocations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE executive_allocations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sales_exec_targets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 
