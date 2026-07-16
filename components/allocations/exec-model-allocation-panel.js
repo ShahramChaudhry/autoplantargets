@@ -9,24 +9,22 @@ import { cn, formatPeriod } from "@/lib/utils";
 import {
   getPrimarySalesGroups,
   getSalesGroups,
-  getSalesGroupByCode,
-  getSalesGroupByName,
   getOfficeLabel,
 } from "@/src/data";
 import {
-  buildExecSavePayload,
-  buildOfficeModelTargets,
-  cellKey,
-  computeExecAllocationStatus,
-  execRowTotal,
+  computeExecGroupAllocationStatus,
+  expandExecGroupAllocationsToModelLeaves,
+  groupCellKey,
+  officeGroupTarget,
   parseUnits,
+  sumExecGroupUnits,
 } from "@/lib/exec-allocation-rollup";
 import { planSlug } from "@/lib/plans";
 import { Save, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 /**
- * Branch Manager grid: Sales Executive × Model for one office.
- * Office model targets are read-only (from NPM). Cells are exec×model only.
+ * Branch Manager grid: Sales Executive × Sales Group for one office.
+ * Model detail is expanded on save from NPM office leaves.
  */
 export function ExecModelAllocationPanel({
   plan,
@@ -39,7 +37,6 @@ export function ExecModelAllocationPanel({
   defaultOfficeName = "",
 }) {
   const router = useRouter();
-  const [salesGroupCode, setSalesGroupCode] = useState("001");
   const [showAllGroups, setShowAllGroups] = useState(false);
   const [officeName, setOfficeName] = useState(
     () => defaultOfficeName || offices[0]?.name || ""
@@ -50,8 +47,10 @@ export function ExecModelAllocationPanel({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  const salesGroupOptions = showAllGroups ? getSalesGroups() : getPrimarySalesGroups();
-  const salesGroup = getSalesGroupByCode(salesGroupCode);
+  const salesGroupColumns = useMemo(
+    () => (showAllGroups ? getSalesGroups() : getPrimarySalesGroups()),
+    [showAllGroups]
+  );
   const monthOptions = periods.length > 0 ? periods : [plan];
   const planPath = planSlug(plan.month, plan.year);
   const isLocked = !editable;
@@ -64,53 +63,54 @@ export function ExecModelAllocationPanel({
     }
   }, [offices, officeName]);
 
-  useEffect(() => {
-    if (targets.length === 0) return;
-    const leaf = targets.find((t) => t.model && t.sales_office);
-    const sg = getSalesGroupByName(leaf?.sales_group || targets[0].sales_group);
-    if (sg) setSalesGroupCode(sg.code);
-  }, [targets]);
-
-  const models = useMemo(() => {
-    if (!salesGroup || !officeName) return [];
-    return buildOfficeModelTargets(targets, salesGroup.name, officeName);
-  }, [targets, salesGroup, officeName]);
-
   const executives = useMemo(() => {
     if (!officeName) return [];
     return executivesByOffice[officeName] || [];
   }, [officeName, executivesByOffice]);
 
-  useEffect(() => {
-    if (!salesGroup || !officeName) return;
-    const next = {};
-    for (const exec of executives) {
-      for (const m of models) {
-        next[cellKey(exec.id, m.model)] = "";
-      }
+  const officeTargetsByGroup = useMemo(() => {
+    const map = {};
+    for (const group of salesGroupColumns) {
+      map[group.name] = officeName
+        ? officeGroupTarget(targets, group.name, officeName)
+        : 0;
     }
-    for (const row of existingAllocations) {
-      if (row.sales_office !== officeName) continue;
-      if (row.sales_group && row.sales_group !== salesGroup.name) continue;
-      if (row.article_code) continue;
-      const key = cellKey(String(row.sales_exec_code), row.model);
-      if (key in next || executives.some((e) => e.id === String(row.sales_exec_code))) {
-        next[key] = row.target_units > 0 ? String(row.target_units) : "";
+    return map;
+  }, [salesGroupColumns, targets, officeName]);
+
+  const grandOfficeTarget = useMemo(
+    () => Object.values(officeTargetsByGroup).reduce((s, v) => s + v, 0),
+    [officeTargetsByGroup]
+  );
+
+  useEffect(() => {
+    if (!officeName) return;
+    const next = {};
+    for (const group of salesGroupColumns) {
+      for (const exec of executives) {
+        const units = sumExecGroupUnits(
+          existingAllocations,
+          group.name,
+          officeName,
+          exec.id
+        );
+        next[groupCellKey(group.name, exec.id)] = units > 0 ? String(units) : "";
       }
     }
     setValues(next);
     setError("");
     setMessage("");
-  }, [salesGroup, officeName, models, executives, existingAllocations]);
+  }, [officeName, salesGroupColumns, executives, existingAllocations]);
 
   const status = useMemo(
     () =>
-      computeExecAllocationStatus({
+      computeExecGroupAllocationStatus({
         values,
-        models,
+        salesGroups: salesGroupColumns,
         executives,
+        officeTargetsByGroup,
       }),
-    [values, models, executives]
+    [values, salesGroupColumns, executives, officeTargetsByGroup]
   );
 
   function handleMonthChange(slug) {
@@ -124,9 +124,15 @@ export function ExecModelAllocationPanel({
     setValues((prev) => ({ ...prev, [key]: raw }));
   }
 
+  function execRowTotal(execCode) {
+    return salesGroupColumns.reduce((sum, group) => {
+      return sum + parseUnits(values[groupCellKey(group.name, execCode)]);
+    }, 0);
+  }
+
   async function persist({ markComplete }) {
-    if (!salesGroup || !officeName) {
-      setError("Select a sales group and office.");
+    if (!officeName) {
+      setError("Select a sales office.");
       return;
     }
     if (status.hasOver) {
@@ -134,7 +140,9 @@ export function ExecModelAllocationPanel({
       return;
     }
     if (markComplete && !status.isFullyAllocated) {
-      setError("Every model must exactly match its office target before completion.");
+      setError(
+        "Every sales group must exactly match its office target before completion."
+      );
       return;
     }
 
@@ -144,32 +152,48 @@ export function ExecModelAllocationPanel({
     setMessage("");
 
     try {
-      const rows = buildExecSavePayload({
-        values,
-        models,
-        executives,
-        salesGroup: salesGroup.name,
-        salesOffice: officeName,
-      });
+      const groupsToSave = salesGroupColumns.filter(
+        (g) => (officeTargetsByGroup[g.name] || 0) > 0
+      );
+      if (groupsToSave.length === 0) {
+        throw new Error(
+          "No office targets found for this sales office. Retail Head must allocate first."
+        );
+      }
 
-      const res = await fetch("/api/plans/save-exec-grid", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          periodId: plan.id,
-          salesGroup: salesGroup.name,
+      let savedCount = 0;
+      for (let i = 0; i < groupsToSave.length; i++) {
+        const group = groupsToSave[i];
+        const rows = expandExecGroupAllocationsToModelLeaves({
+          values,
+          executives,
+          salesGroupName: group.name,
           salesOffice: officeName,
-          rows,
-          markComplete: Boolean(markComplete),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to save");
+          targets,
+          existingAllocations,
+        });
+
+        const isLast = i === groupsToSave.length - 1;
+        const res = await fetch("/api/plans/save-exec-grid", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            periodId: plan.id,
+            salesGroup: group.name,
+            salesOffice: officeName,
+            rows,
+            markComplete: Boolean(markComplete) && isLast,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `Failed to save ${group.name}`);
+        savedCount += data.savedCount || 0;
+      }
 
       setMessage(
         markComplete
           ? "Sales executive allocation marked complete."
-          : `Draft saved (${data.savedCount || 0} line${(data.savedCount || 0) === 1 ? "" : "s"}).`
+          : `Draft saved (${savedCount} line${savedCount === 1 ? "" : "s"}).`
       );
       router.refresh();
     } catch (err) {
@@ -180,7 +204,7 @@ export function ExecModelAllocationPanel({
     }
   }
 
-  const hasGrid = salesGroup && officeName && models.length > 0 && executives.length > 0;
+  const hasGrid = officeName && executives.length > 0;
   const selectedOffice = offices.find((o) => o.name === officeName);
 
   return (
@@ -202,31 +226,6 @@ export function ExecModelAllocationPanel({
           </Select>
         </div>
 
-        <div className="min-w-[200px] space-y-1">
-          <div className="flex items-center justify-between gap-2">
-            <Label className="text-xs text-slate-500">Sales Group</Label>
-            <button
-              type="button"
-              onClick={() => setShowAllGroups((v) => !v)}
-              className="text-[11px] text-slate-500 underline-offset-2 hover:underline"
-            >
-              {showAllGroups ? "Show primary" : "Show all groups"}
-            </button>
-          </div>
-          <Select
-            value={salesGroupCode}
-            onChange={(e) => setSalesGroupCode(e.target.value)}
-            disabled={isLocked}
-            className="h-9"
-          >
-            {salesGroupOptions.map((g) => (
-              <option key={g.code} value={g.code}>
-                {g.code} — {g.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-
         <div className="min-w-[220px] space-y-1">
           <Label className="text-xs text-slate-500">Sales Office</Label>
           <Select
@@ -243,18 +242,32 @@ export function ExecModelAllocationPanel({
             ))}
           </Select>
           {officeLocked && (
-            <p className="text-[11px] text-slate-400">Restricted to your assigned office(s).</p>
+            <p className="text-[11px] text-slate-400">
+              Restricted to your assigned office(s).
+            </p>
           )}
         </div>
 
         {!isLocked && (
-          <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setShowAllGroups((v) => !v)}
+            className="mb-1.5 text-[11px] text-slate-500 underline-offset-2 hover:underline"
+          >
+            {showAllGroups ? "Show primary sales groups" : "Show all sales groups"}
+          </button>
+        )}
+
+        {!isLocked && (
+          <div className="ml-auto flex flex-wrap gap-2">
             <Button
               type="button"
               size="sm"
               variant="outline"
               onClick={() => persist({ markComplete: false })}
-              disabled={saving || completing || !hasGrid || status.hasOver}
+              disabled={
+                saving || completing || !hasGrid || status.hasOver || grandOfficeTarget <= 0
+              }
               className="gap-1.5"
             >
               <Save className="h-3.5 w-3.5" />
@@ -265,7 +278,11 @@ export function ExecModelAllocationPanel({
               size="sm"
               onClick={() => persist({ markComplete: true })}
               disabled={
-                completing || saving || !hasGrid || !status.isFullyAllocated || status.hasOver
+                completing ||
+                saving ||
+                !hasGrid ||
+                !status.isFullyAllocated ||
+                status.hasOver
               }
               className="gap-1.5"
             >
@@ -277,8 +294,8 @@ export function ExecModelAllocationPanel({
       </div>
 
       <p className="text-xs text-slate-500">
-        Distribute office model targets across sales executives. Office targets are fixed from
-        Retail Head allocation. Row total = Full Month Target Qty.
+        Distribute office targets across sales executives by sales group. Office targets come
+        from Retail Head allocation. Model split is applied automatically on save.
       </p>
 
       {(error || message) && (
@@ -292,12 +309,12 @@ export function ExecModelAllocationPanel({
           <div className="flex items-start gap-2">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <div className="space-y-1">
-              {status.modelStatuses
-                .filter((m) => m.over)
-                .map((m) => (
-                  <p key={m.model} className="text-xs">
-                    {m.model}: allocated {m.allocated} exceeds office target {m.target} (+
-                    {m.allocated - m.target})
+              {status.groupStatuses
+                .filter((g) => g.over)
+                .map((g) => (
+                  <p key={g.salesGroup} className="text-xs">
+                    {g.salesGroup}: allocated {g.allocated} exceeds office target {g.target} (+
+                    {g.allocated - g.target})
                   </p>
                 ))}
             </div>
@@ -305,13 +322,13 @@ export function ExecModelAllocationPanel({
         </div>
       )}
 
-      {status.remainingModels.length > 0 && !status.hasOver && (
+      {status.remainingGroups.length > 0 && !status.hasOver && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <p className="font-medium">Still remaining to allocate</p>
           <ul className="mt-1 space-y-0.5 text-xs">
-            {status.remainingModels.map((m) => (
-              <li key={m.model}>
-                {m.model}: {m.allocated} of {m.target} allocated, {m.remaining} left
+            {status.remainingGroups.map((g) => (
+              <li key={g.salesGroup}>
+                {g.salesGroup}: {g.allocated} of {g.target} allocated, {g.remaining} left
               </li>
             ))}
             <li className="pt-1 font-medium">
@@ -328,14 +345,14 @@ export function ExecModelAllocationPanel({
         </div>
       )}
 
-      {offices.length > 0 && !hasGrid && (
+      {offices.length > 0 && hasGrid && grandOfficeTarget <= 0 && (
         <div className="border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
           <p className="font-medium text-slate-800">
-            Nothing to allocate for {selectedOffice ? getOfficeLabel(selectedOffice) : "this office"}
+            Nothing to allocate for{" "}
+            {selectedOffice ? getOfficeLabel(selectedOffice) : "this office"}
           </p>
           <p className="mt-1">
-            Retail Head must first allocate model targets to this office for{" "}
-            <span className="font-medium">{salesGroup?.name}</span>.
+            Retail Head must first allocate targets to this office across sales groups.
           </p>
         </div>
       )}
@@ -344,48 +361,70 @@ export function ExecModelAllocationPanel({
         <div className="overflow-auto border border-slate-300 bg-white shadow-sm">
           <table className="min-w-full border-collapse text-sm">
             <thead>
-              <tr className="bg-sky-100/80">
+              <tr className="bg-slate-200/80">
                 <th
-                  colSpan={2}
-                  className="sticky left-0 z-20 border border-slate-300 bg-sky-100 px-3 py-1.5 text-left text-xs font-semibold text-slate-700"
+                  rowSpan={3}
+                  className="sticky left-0 z-20 min-w-[5.5rem] border border-slate-300 bg-slate-200 px-2 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-700"
                 >
-                  {formatPeriod(plan.month, plan.year)} · {getOfficeLabel(selectedOffice)} · Sales
-                  Executive Allocation
+                  Sales Exec Code
                 </th>
                 <th
-                  colSpan={models.length + 1}
-                  className="border border-slate-300 px-3 py-1.5 text-center text-xs font-semibold text-slate-700"
+                  rowSpan={3}
+                  className="sticky left-[5.5rem] z-20 min-w-[11rem] border border-slate-300 bg-slate-200 px-2 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-700"
                 >
-                  Models
+                  Sales Executive Name
+                </th>
+                {salesGroupColumns.map((group) => (
+                  <th
+                    key={`hdr-${group.code}`}
+                    className="min-w-[7.5rem] border border-slate-300 px-2 py-1.5 text-center text-xs font-semibold text-slate-800"
+                  >
+                    {group.name}
+                  </th>
+                ))}
+                <th className="min-w-[6.5rem] border border-slate-300 bg-sky-100 px-2 py-1.5 text-center text-xs font-semibold text-slate-800">
+                  Total
                 </th>
               </tr>
               <tr className="bg-slate-100">
-                <th className="sticky left-0 z-20 min-w-[5.5rem] border border-slate-300 bg-slate-100 px-2 py-1.5 text-left text-xs text-slate-500">
-                  Sales Exec Code
-                </th>
-                <th className="sticky left-[5.5rem] z-20 min-w-[10rem] border border-slate-300 bg-slate-100 px-2 py-1.5 text-left text-xs text-slate-500">
-                  Sales Executive Name
-                </th>
-                {models.map((m) => (
+                {salesGroupColumns.map((group) => (
                   <th
-                    key={`h-${m.model}`}
-                    className="min-w-[4.5rem] border border-slate-300 px-1 py-1.5 text-center text-xs font-medium text-slate-700"
+                    key={`metric-${group.code}`}
+                    className="border border-slate-300 px-2 py-1 text-center text-[11px] font-medium text-slate-600"
                   >
-                    {m.model}
+                    Target Qty
                   </th>
                 ))}
-                <th className="min-w-[5rem] border border-slate-300 px-1 py-1.5 text-center text-xs font-semibold text-slate-800">
-                  Full Month Target Qty
+                <th className="border border-slate-300 bg-sky-50 px-2 py-1 text-center text-[11px] font-medium text-slate-600">
+                  Target Qty
+                </th>
+              </tr>
+              <tr className="bg-slate-50">
+                {salesGroupColumns.map((group) => (
+                  <th
+                    key={`uom-${group.code}`}
+                    className="border border-slate-300 px-2 py-0.5 text-center text-[10px] font-medium uppercase tracking-wide text-slate-500"
+                  >
+                    EA
+                    {(officeTargetsByGroup[group.name] || 0) > 0 && (
+                      <span className="mt-0.5 block font-normal normal-case text-slate-400">
+                        Office {(officeTargetsByGroup[group.name] || 0).toLocaleString()}
+                      </span>
+                    )}
+                  </th>
+                ))}
+                <th className="border border-slate-300 bg-sky-50 px-2 py-0.5 text-center text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                  EA
                 </th>
               </tr>
             </thead>
             <tbody>
               {executives.map((exec, rowIndex) => {
-                const rowTotal = execRowTotal(values, models, exec.id);
+                const rowTotal = execRowTotal(exec.id);
                 return (
                   <tr
                     key={exec.id}
-                    className={rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50/60"}
+                    className={cn(rowIndex % 2 === 0 ? "bg-sky-50/50" : "bg-white")}
                   >
                     <td className="sticky left-0 z-10 border border-slate-200 bg-inherit px-2 py-1.5 font-mono text-xs text-slate-600">
                       {exec.id}
@@ -393,12 +432,26 @@ export function ExecModelAllocationPanel({
                     <td className="sticky left-[5.5rem] z-10 border border-slate-200 bg-inherit px-2 py-1.5 text-sm text-slate-900">
                       {exec.name}
                     </td>
-                    {models.map((m) => {
-                      const key = cellKey(exec.id, m.model);
-                      const modelStatus = status.modelStatuses.find((s) => s.model === m.model);
+                    {salesGroupColumns.map((group) => {
+                      const key = groupCellKey(group.name, exec.id);
+                      const groupStatus = status.groupStatuses.find(
+                        (g) => g.salesGroup === group.name
+                      );
+                      const inactive = (officeTargetsByGroup[group.name] || 0) <= 0;
+
                       return (
-                        <td key={key} className="min-w-[4.5rem] border border-slate-200 p-0">
-                          {isLocked ? (
+                        <td
+                          key={key}
+                          className={cn(
+                            "border border-slate-200 p-0",
+                            inactive && "bg-slate-50/80"
+                          )}
+                        >
+                          {inactive ? (
+                            <div className="flex h-8 items-center justify-center text-slate-300">
+                              —
+                            </div>
+                          ) : isLocked ? (
                             <div className="flex h-8 items-center justify-center text-sm tabular-nums">
                               {values[key] || ""}
                             </div>
@@ -408,23 +461,23 @@ export function ExecModelAllocationPanel({
                               inputMode="numeric"
                               className={cn(
                                 "h-8 w-full bg-transparent px-1 text-center text-sm tabular-nums outline-none focus:bg-amber-50",
-                                modelStatus?.over && "bg-red-50",
-                                modelStatus &&
-                                  modelStatus.remaining > 0 &&
+                                groupStatus?.over && "bg-red-50",
+                                groupStatus &&
+                                  groupStatus.remaining > 0 &&
                                   parseUnits(values[key]) > 0 &&
-                                  !modelStatus.over &&
+                                  !groupStatus.over &&
                                   "bg-amber-50/40"
                               )}
                               value={values[key] ?? ""}
                               onChange={(e) => updateCell(key, e.target.value)}
-                              aria-label={`${exec.name} / ${m.model}`}
+                              aria-label={`${exec.name} / ${group.name}`}
                             />
                           )}
                         </td>
                       );
                     })}
-                    <td className="border border-slate-200 bg-slate-50 px-1 text-center text-sm font-medium tabular-nums text-slate-800">
-                      {rowTotal > 0 ? rowTotal : ""}
+                    <td className="border border-slate-200 bg-sky-50/60 px-2 py-1.5 text-center text-sm font-semibold tabular-nums text-slate-900">
+                      {rowTotal > 0 ? rowTotal.toLocaleString() : ""}
                     </td>
                   </tr>
                 );
@@ -437,17 +490,18 @@ export function ExecModelAllocationPanel({
                 >
                   Allocated
                 </td>
-                {status.modelStatuses.map((m) => (
+                {status.groupStatuses.map((g) => (
                   <td
-                    key={`a-${m.model}`}
+                    key={`a-${g.salesGroup}`}
                     className={cn(
                       "border border-slate-300 px-1 py-1.5 text-center tabular-nums",
-                      m.over && "bg-red-100 text-red-800",
-                      !m.over && m.remaining > 0 && "bg-amber-50 text-amber-900",
-                      m.complete && "bg-emerald-50 text-emerald-800"
+                      g.inactive && "text-slate-300",
+                      g.over && "bg-red-100 text-red-800",
+                      !g.inactive && !g.over && g.remaining > 0 && "bg-amber-50 text-amber-900",
+                      g.complete && "bg-emerald-50 text-emerald-800"
                     )}
                   >
-                    {m.allocated}
+                    {g.inactive ? "" : g.allocated}
                   </td>
                 ))}
                 <td className="border border-slate-300 px-1 py-1.5 text-center tabular-nums">
@@ -461,45 +515,48 @@ export function ExecModelAllocationPanel({
                 >
                   Office Target
                 </td>
-                {models.map((m) => (
+                {salesGroupColumns.map((group) => (
                   <td
-                    key={`t-${m.model}`}
+                    key={`t-${group.code}`}
                     className="border border-slate-300 px-1 py-1.5 text-center tabular-nums text-slate-700"
                   >
-                    {m.officeTarget}
+                    {(officeTargetsByGroup[group.name] || 0) > 0
+                      ? officeTargetsByGroup[group.name]
+                      : ""}
                   </td>
                 ))}
                 <td className="border border-slate-300 px-1 py-1.5 text-center tabular-nums text-slate-700">
-                  {status.officeTotal}
+                  {status.officeTotal > 0 ? status.officeTotal : ""}
                 </td>
               </tr>
-              <tr className="bg-white">
+              <tr className="bg-amber-100 font-semibold">
                 <td
                   colSpan={2}
-                  className="sticky left-0 z-10 border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-600"
+                  className="sticky left-0 z-10 border border-slate-300 bg-amber-100 px-2 py-1.5 text-xs uppercase tracking-wide text-slate-800"
                 >
                   Remaining
                 </td>
-                {status.modelStatuses.map((m) => (
+                {status.groupStatuses.map((g) => (
                   <td
-                    key={`r-${m.model}`}
+                    key={`r-${g.salesGroup}`}
                     className={cn(
                       "border border-slate-300 px-1 py-1.5 text-center tabular-nums",
-                      m.over && "text-red-700",
-                      m.remaining > 0 && !m.over && "text-amber-800",
-                      m.complete && "text-emerald-700"
+                      g.inactive && "text-slate-300",
+                      g.over && "text-red-700",
+                      g.remaining > 0 && !g.over && "text-amber-800",
+                      g.complete && "text-emerald-700"
                     )}
                   >
-                    {m.remaining}
+                    {g.inactive ? "" : g.remaining}
                   </td>
                 ))}
                 <td
                   className={cn(
-                    "border border-slate-300 px-1 py-1.5 text-center tabular-nums",
-                    status.remainingTotal > 0 ? "text-amber-800" : "text-emerald-700"
+                    "border border-slate-300 bg-amber-200/70 px-1 py-1.5 text-center tabular-nums",
+                    status.remainingTotal > 0 ? "text-amber-900" : "text-emerald-800"
                   )}
                 >
-                  {status.remainingTotal}
+                  {status.officeTotal > 0 ? status.remainingTotal : ""}
                 </td>
               </tr>
             </tbody>
