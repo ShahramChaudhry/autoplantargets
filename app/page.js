@@ -10,5 +10,6 @@ export default async function Home() {
     redirect("/approvals");
   }
   if (user.role === ROLES.NPM) redirect("/allocations");
+  if (user.role === ROLES.BRANCH_MANAGER) redirect("/allocations");
   redirect("/dashboard");
 }

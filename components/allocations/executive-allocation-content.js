@@ -1,7 +1,5 @@
 import { ExecModelAllocationPanel } from "@/components/allocations/exec-model-allocation-panel";
-import { ReconciliationPanel } from "@/components/reconciliation-panel";
 import { createClient } from "@/lib/supabase/server";
-import { calculateReconciliation } from "@/lib/workflow";
 import {
   isExecutiveAllocationAllowed,
   EXECUTIVE_ALLOCATION_BLOCKED_MESSAGE,
@@ -54,8 +52,6 @@ export async function ExecutiveAllocationContent({ plan, user }) {
     if (!error) existingAllocations = data || [];
   }
 
-  const result = canStart ? await calculateReconciliation(supabase, plan.id) : null;
-
   return (
     <div className="space-y-6">
       {!canStart && (
@@ -83,8 +79,6 @@ export async function ExecutiveAllocationContent({ plan, user }) {
               Sales executive allocation is complete for this plan and is read-only.
             </p>
           )}
-
-          <ReconciliationPanel periodId={plan.id} initialResult={result} />
         </>
       )}
     </div>

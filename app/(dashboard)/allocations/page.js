@@ -19,7 +19,7 @@ export default async function AllocationsPage({ searchParams }) {
         description={
           isRetailHead
             ? "Split Retail targets across sales offices"
-            : "Allocate Sales Office targets to Sales Executives and resolve reconciliation"
+            : "Distribute office model targets across your sales executives"
         }
       />
 
