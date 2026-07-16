@@ -19,6 +19,7 @@ import {
   EXECUTIVE_ALLOCATION_BLOCKED_MESSAGE,
 } from "@/lib/retail-allocation";
 import { logAudit } from "@/lib/workflow";
+import { formatSalesExecTargetsError } from "@/lib/sales-exec-targets-migration";
 
 async function findLeaf(supabase, periodId, row) {
   let query = supabase
@@ -255,7 +256,10 @@ export async function POST(request) {
       planStatus: markComplete ? "executive_allocation" : period.status,
     });
   } catch (err) {
-    return NextResponse.json({ error: err.message || "Failed to save" }, { status: 500 });
+    return NextResponse.json(
+      { error: formatSalesExecTargetsError(err) },
+      { status: 500 }
+    );
   }
 }
 

@@ -1,5 +1,7 @@
+-- Run this in Supabase Dashboard → SQL Editor if Branch Manager save/complete fails with:
+-- "Could not find the table 'public.sales_exec_targets' in the schema cache"
+--
 -- Sales Executive × Model allocation (Branch Manager)
--- Leaf source of truth; row/column/office totals are derived.
 
 CREATE TABLE IF NOT EXISTS sales_exec_targets (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
