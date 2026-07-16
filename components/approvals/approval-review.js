@@ -173,8 +173,8 @@ export function ApprovalReview({
             <CardHeader>
               <CardTitle className="text-base">Plan Details — Target Grid</CardTitle>
               <p className="text-sm text-slate-500">
-                Brand → Model targets by Sales Group (same view Demand &amp; Supply submitted). Sales
-                office split is done later by Retail Head.
+                Brand → Models as rows, Sales Groups as columns (same view Demand &amp; Supply
+                submitted). Sales office split is done later by Retail Head.
               </p>
             </CardHeader>
             <CardContent>

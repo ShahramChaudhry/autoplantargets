@@ -127,6 +127,21 @@ export function getModels(division, salesGroup) {
   return models[divisionName]?.[groupName] || [];
 }
 
+/** Unique models for a division across one or more sales groups (column layout). */
+export function getModelsAcrossSalesGroups(division, salesGroupList) {
+  const seen = new Set();
+  const result = [];
+  for (const group of salesGroupList || []) {
+    for (const model of getModels(division, group)) {
+      if (!seen.has(model)) {
+        seen.add(model);
+        result.push(model);
+      }
+    }
+  }
+  return result;
+}
+
 export function getGridConfig(division) {
   const name = typeof division === "string" ? division : division?.name;
   return (

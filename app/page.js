@@ -1,15 +1,8 @@
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
-import { ROLES } from "@/lib/constants";
+import { getCurrentUser, getHomePathForRole } from "@/lib/auth";
 
 export default async function Home() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (user.role === ROLES.DEMAND_SUPPLY) redirect("/monthly-planning");
-  if (user.role === ROLES.B2B_DIRECTOR || user.role === ROLES.MANAGING_DIRECTOR) {
-    redirect("/approvals");
-  }
-  if (user.role === ROLES.NPM) redirect("/allocations");
-  if (user.role === ROLES.BRANCH_MANAGER) redirect("/allocations");
-  redirect("/dashboard");
+  redirect(getHomePathForRole(user.role));
 }

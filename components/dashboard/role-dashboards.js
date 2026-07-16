@@ -3,7 +3,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge, getStatusBadgeVariant } from "@/components/ui/badge";
 import { formatPeriod } from "@/lib/utils";
 import { STATUS_LABELS } from "@/lib/constants";
-import { Users, History, Activity } from "lucide-react";
 
 export function B2BDashboard({
   period,
@@ -268,62 +267,6 @@ export function BranchManagerDashboard({
           </CardContent>
         </Card>
       )}
-    </div>
-  );
-}
-
-export function ITAdminDashboard({ activeUsers = 0, auditEvents = 0, systemHealth = "Healthy" }) {
-  return (
-    <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-slate-500">Active Users</CardTitle>
-            <Users className="h-4 w-4 text-slate-400" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{activeUsers}</div>
-            <p className="text-xs text-slate-500">seeded application users</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-slate-500">Audit Events</CardTitle>
-            <History className="h-4 w-4 text-slate-400" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{auditEvents}</div>
-            <p className="text-xs text-slate-500">recorded activity entries</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-slate-500">System Health</CardTitle>
-            <Activity className="h-4 w-4 text-slate-400" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-emerald-700">{systemHealth}</div>
-            <p className="text-xs text-slate-500">local JSON store operational</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Administration</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-slate-600">
-            Manage users, review audit history, and perform administrative corrections.
-          </p>
-          <Link
-            href="/administration"
-            className="inline-flex items-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-          >
-            Open Administration
-          </Link>
-        </CardContent>
-      </Card>
     </div>
   );
 }

@@ -10,9 +10,7 @@ import {
   getDivisionsForUser,
   getPrimarySalesGroups,
   getSalesGroups,
-  getSalesGroupByCode,
-  getSalesGroupByName,
-  getModels,
+  getModelsAcrossSalesGroups,
   rowKey,
 } from "@/src/data";
 import { getArticleCodesForModel } from "@/lib/constants";
@@ -20,8 +18,18 @@ import { planSlug, planStepPath } from "@/lib/plans";
 import { Save, Send, ChevronDown, ChevronRight, Plus, AlertTriangle } from "lucide-react";
 import { CreatePlanModal } from "@/components/plan/create-plan-modal";
 
-function articleKey(divisionName, model) {
+function articleExpandKey(divisionName, model) {
   return `${divisionName}::${model}`;
+}
+
+/** Model cell key scoped to a sales group column. */
+function modelCellKey(salesGroupName, model) {
+  return `${salesGroupName}::${model}`;
+}
+
+/** Article cell key scoped to a sales group column. */
+function articleCellKey(salesGroupName, model, code) {
+  return `${salesGroupName}::${rowKey(model, null, code)}`;
 }
 
 /** Prefer brand+group+model with null office; fall back to summing legacy office rows. */
@@ -47,27 +55,27 @@ function resolveModelTarget(targets, brand, salesGroup, model) {
 }
 
 function computeArticleMismatches({
-  divisions,
-  salesGroup,
+  division,
+  salesGroups,
+  models,
   expandedArticles,
   values,
   articleValues,
 }) {
-  if (!salesGroup) return [];
+  if (!division) return [];
   const errors = [];
 
-  for (const division of divisions) {
-    const models = getModels(division, salesGroup);
-    for (const model of models) {
-      if (!expandedArticles.has(articleKey(division.name, model))) continue;
+  for (const model of models) {
+    if (!expandedArticles.has(articleExpandKey(division.name, model))) continue;
 
-      const modelTotal = parseInt(values[rowKey(model)], 10) || 0;
+    for (const group of salesGroups) {
+      const modelTotal = parseInt(values[modelCellKey(group.name, model)], 10) || 0;
       const articles = getArticleCodesForModel(division.name, model);
       let articleSum = 0;
       let hasArticleValue = false;
 
       for (const code of articles) {
-        const units = parseInt(articleValues[rowKey(model, null, code)], 10) || 0;
+        const units = parseInt(articleValues[articleCellKey(group.name, model, code)], 10) || 0;
         if (units > 0) hasArticleValue = true;
         articleSum += units;
       }
@@ -76,6 +84,7 @@ function computeArticleMismatches({
         errors.push({
           division: division.name,
           model,
+          salesGroup: group.name,
           modelTotal,
           articleSum,
           diff: articleSum - modelTotal,
@@ -89,7 +98,7 @@ function computeArticleMismatches({
 
 /**
  * Demand & Supply / Approver grid:
- * Brand (division) → Models × selected Sales Group (+ optional Articles).
+ * Selected Brand × Month → Models as rows, Sales Groups as columns (+ optional Articles).
  * No sales office columns — that is NPM's allocation step.
  */
 export function TargetEntryPanel({
@@ -105,10 +114,7 @@ export function TargetEntryPanel({
   const router = useRouter();
   const divisions = useMemo(() => getDivisionsForUser(user), [user]);
 
-  const [salesGroupCode, setSalesGroupCode] = useState("001");
-  const [expandedDivisions, setExpandedDivisions] = useState(
-    () => new Set(divisions.map((d) => d.id))
-  );
+  const [divisionId, setDivisionId] = useState(() => divisions[0]?.id || "");
   const [expandedArticles, setExpandedArticles] = useState(() => new Set());
   const [values, setValues] = useState({});
   const [recordIds, setRecordIds] = useState({});
@@ -119,28 +125,36 @@ export function TargetEntryPanel({
   const [showAllGroups, setShowAllGroups] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
-  const salesGroupOptions = showAllGroups ? getSalesGroups() : getPrimarySalesGroups();
-  const salesGroup = getSalesGroupByCode(salesGroupCode);
+  const salesGroupColumns = useMemo(
+    () => (showAllGroups ? getSalesGroups() : getPrimarySalesGroups()),
+    [showAllGroups]
+  );
+  const division = divisions.find((d) => d.id === divisionId) || divisions[0] || null;
+  const models = useMemo(
+    () => (division ? getModelsAcrossSalesGroups(division, salesGroupColumns) : []),
+    [division, salesGroupColumns]
+  );
   const monthOptions = periods.length > 0 ? periods : [plan];
   const planPath = planSlug(plan.month, plan.year);
   const isLocked = readOnly || !editable;
 
   useEffect(() => {
-    if (!readOnly || targets.length === 0) return;
-    const sg = getSalesGroupByName(targets[0].sales_group);
-    if (sg) setSalesGroupCode(sg.code);
-  }, [readOnly, targets]);
-
-  useEffect(() => {
-    if (salesGroupOptions.length === 0) return;
-    if (!salesGroupOptions.some((g) => g.code === salesGroupCode)) {
-      setSalesGroupCode(salesGroupOptions[0].code);
+    if (divisions.length === 0) return;
+    if (!divisions.some((d) => d.id === divisionId)) {
+      setDivisionId(divisions[0].id);
     }
-  }, [salesGroupOptions, salesGroupCode]);
+  }, [divisions, divisionId]);
 
-  // Hydrate model + article cells for the selected sales group
   useEffect(() => {
-    if (!salesGroup) return;
+    if (!readOnly || targets.length === 0 || divisions.length === 0) return;
+    const brand = targets[0].brand;
+    const match = divisions.find((d) => d.name === brand);
+    if (match) setDivisionId(match.id);
+  }, [readOnly, targets, divisions]);
+
+  // Hydrate model + article cells for the selected brand across sales group columns
+  useEffect(() => {
+    if (!division) return;
 
     const nextValues = {};
     const nextIds = {};
@@ -150,16 +164,10 @@ export function TargetEntryPanel({
       modelAllocations.map((m) => [m.target_id, m])
     );
 
-    for (const division of divisions) {
-      const models = getModels(division, salesGroup);
+    for (const group of salesGroupColumns) {
       for (const model of models) {
-        const key = rowKey(model);
-        const existing = resolveModelTarget(
-          targets,
-          division.name,
-          salesGroup.name,
-          model
-        );
+        const key = modelCellKey(group.name, model);
+        const existing = resolveModelTarget(targets, division.name, group.name, model);
         nextValues[key] = existing ? String(existing.target_units) : "";
         if (existing?.id && !existing._aggregatedFromOffices) {
           nextIds[key] = existing.id;
@@ -171,7 +179,9 @@ export function TargetEntryPanel({
             (a) => a.model_allocation_id === modelAlloc.id
           );
           for (const art of articles) {
-            nextArticleValues[rowKey(model, null, art.article_code)] = String(art.units);
+            nextArticleValues[articleCellKey(group.name, model, art.article_code)] = String(
+              art.units
+            );
           }
         }
       }
@@ -183,16 +193,15 @@ export function TargetEntryPanel({
 
     if (readOnly) {
       const articleExpand = new Set();
-      for (const division of divisions) {
-        const models = getModels(division, salesGroup);
-        for (const model of models) {
-          const codes = getArticleCodesForModel(division.name, model);
-          const hasData = codes.some((code) => {
-            const raw = nextArticleValues[rowKey(model, null, code)];
+      for (const model of models) {
+        const codes = getArticleCodesForModel(division.name, model);
+        const hasData = salesGroupColumns.some((group) =>
+          codes.some((code) => {
+            const raw = nextArticleValues[articleCellKey(group.name, model, code)];
             return raw && parseInt(raw, 10) > 0;
-          });
-          if (hasData) articleExpand.add(articleKey(division.name, model));
-        }
+          })
+        );
+        if (hasData) articleExpand.add(articleExpandKey(division.name, model));
       }
       setExpandedArticles(articleExpand);
     }
@@ -200,8 +209,9 @@ export function TargetEntryPanel({
     setError("");
     setMessage("");
   }, [
-    divisions,
-    salesGroup,
+    division,
+    salesGroupColumns,
+    models,
     targets,
     modelAllocations,
     articleAllocations,
@@ -211,41 +221,49 @@ export function TargetEntryPanel({
   const articleMismatchErrors = useMemo(
     () =>
       computeArticleMismatches({
-        divisions,
-        salesGroup,
+        division,
+        salesGroups: salesGroupColumns,
+        models,
         expandedArticles,
         values,
         articleValues,
       }),
-    [divisions, salesGroup, expandedArticles, values, articleValues]
+    [division, salesGroupColumns, models, expandedArticles, values, articleValues]
   );
 
-  const mismatchModels = useMemo(() => {
+  const mismatchKeys = useMemo(() => {
     const set = new Set();
     for (const e of articleMismatchErrors) {
-      set.add(`${e.division}::${e.model}`);
+      set.add(`${e.model}::${e.salesGroup}`);
     }
     return set;
   }, [articleMismatchErrors]);
 
-  const total = useMemo(
-    () => Object.values(values).reduce((sum, v) => sum + (parseInt(v, 10) || 0), 0),
-    [values]
+  const columnTotals = useMemo(() => {
+    const totals = {};
+    for (const group of salesGroupColumns) {
+      totals[group.name] = models.reduce((sum, model) => {
+        return sum + (parseInt(values[modelCellKey(group.name, model)], 10) || 0);
+      }, 0);
+    }
+    return totals;
+  }, [salesGroupColumns, models, values]);
+
+  const grandTotal = useMemo(
+    () => Object.values(columnTotals).reduce((sum, v) => sum + v, 0),
+    [columnTotals]
   );
+
+  function rowTotal(model) {
+    return salesGroupColumns.reduce((sum, group) => {
+      return sum + (parseInt(values[modelCellKey(group.name, model)], 10) || 0);
+    }, 0);
+  }
 
   function handleMonthChange(slug) {
     if (slug && slug !== planPath) {
       router.push(`/monthly-planning/${slug}?step=targets`);
     }
-  }
-
-  function toggleDivision(id) {
-    setExpandedDivisions((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
   }
 
   function updateCell(key, value) {
@@ -258,15 +276,25 @@ export function TargetEntryPanel({
     setArticleValues((prev) => ({ ...prev, [key]: value }));
   }
 
+  function toggleArticles(model) {
+    const k = articleExpandKey(division.name, model);
+    setExpandedArticles((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  }
+
   async function handleSave(goToSubmit = false) {
-    if (!salesGroup) {
-      setError("Select a Sales Group first.");
+    if (!division) {
+      setError("Select a Division / Brand first.");
       return;
     }
 
     if (articleMismatchErrors.length > 0) {
       setError(
-        `Article totals must match model totals for ${articleMismatchErrors.length} model(s). Fix before saving.`
+        `Article totals must match model totals for ${articleMismatchErrors.length} cell(s). Fix before saving.`
       );
       return;
     }
@@ -279,34 +307,33 @@ export function TargetEntryPanel({
       const targetPayload = [];
       const articlePayload = [];
 
-      for (const division of divisions) {
-        const models = getModels(division, salesGroup);
+      for (const group of salesGroupColumns) {
         for (const model of models) {
-          const key = rowKey(model);
+          const key = modelCellKey(group.name, model);
           const raw = values[key];
           const units = raw === "" || raw === undefined ? 0 : parseInt(raw, 10);
           if (Number.isNaN(units) || units < 0) {
-            throw new Error(`Invalid target for ${division.name} ${model}`);
+            throw new Error(`Invalid target for ${division.name} ${model} / ${group.name}`);
           }
           if (!recordIds[key] && units === 0) continue;
 
           targetPayload.push({
             brand: division.name,
-            sales_group: salesGroup.name,
+            sales_group: group.name,
             model,
             sales_office: null,
             target_units: units,
           });
 
-          if (expandedArticles.has(articleKey(division.name, model))) {
+          if (expandedArticles.has(articleExpandKey(division.name, model))) {
             const articles = getArticleCodesForModel(division.name, model);
             for (const code of articles) {
-              const aRaw = articleValues[rowKey(model, null, code)];
+              const aRaw = articleValues[articleCellKey(group.name, model, code)];
               const aUnits = aRaw === "" || aRaw === undefined ? 0 : parseInt(aRaw, 10);
               if (aUnits > 0) {
                 articlePayload.push({
                   brand: division.name,
-                  sales_group: salesGroup.name,
+                  sales_group: group.name,
                   model,
                   sales_office: null,
                   articleCode: code,
@@ -338,7 +365,7 @@ export function TargetEntryPanel({
       for (const row of targetPayload) {
         const cellKey = `${row.brand}::${row.sales_group}::${row.model}::`;
         const id = saveData.idByKey?.[cellKey];
-        const key = rowKey(row.model);
+        const key = modelCellKey(row.sales_group, row.model);
         if (id) nextIds[key] = id;
         else if (row.target_units <= 0) delete nextIds[key];
       }
@@ -361,7 +388,7 @@ export function TargetEntryPanel({
     }
   }
 
-  const hasGrid = salesGroup && divisions.length > 0;
+  const hasGrid = division && models.length > 0;
 
   return (
     <div className="space-y-4">
@@ -399,32 +426,31 @@ export function TargetEntryPanel({
           )}
         </div>
 
-        <div className="min-w-[220px] flex-1 space-y-1">
-          <div className="flex items-center justify-between gap-2">
-            <Label className="text-xs text-slate-500">Sales Group</Label>
-            {!readOnly && (
-              <button
-                type="button"
-                onClick={() => setShowAllGroups((v) => !v)}
-                className="text-[11px] text-slate-500 underline-offset-2 hover:underline"
-              >
-                {showAllGroups ? "Show primary" : "Show all groups"}
-              </button>
-            )}
-          </div>
+        <div className="min-w-[180px] space-y-1">
+          <Label className="text-xs text-slate-500">Division / Brand</Label>
           <Select
-            value={salesGroupCode}
-            onChange={(e) => setSalesGroupCode(e.target.value)}
+            value={division?.id || ""}
+            onChange={(e) => setDivisionId(e.target.value)}
             disabled={!readOnly && !editable}
             className="h-9"
           >
-            {salesGroupOptions.map((g) => (
-              <option key={g.code} value={g.code}>
-                {g.code} — {g.name}
+            {divisions.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
               </option>
             ))}
           </Select>
         </div>
+
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={() => setShowAllGroups((v) => !v)}
+            className="mb-1.5 text-[11px] text-slate-500 underline-offset-2 hover:underline"
+          >
+            {showAllGroups ? "Show primary sales groups" : "Show all sales groups"}
+          </button>
+        )}
 
         <div className="ml-auto flex items-center gap-2 pb-0.5">
           {editable && !readOnly && (
@@ -456,9 +482,9 @@ export function TargetEntryPanel({
       </div>
 
       <p className="text-xs text-slate-500">
-        Enter Brand → Model targets for the selected Sales Group. Models under a brand add up to
-        that brand&apos;s total. If you break a model into articles, those articles must add up to
-        the model total. Sales office allocation is handled later by Retail Head.
+        Select Month and Division/Brand, then enter model targets under each Sales Group column.
+        Expand a model for optional article breakdown — article totals must match the model total
+        in each column. Sales office allocation is handled later by Retail Head.
       </p>
 
       {(error || message) && (
@@ -477,9 +503,9 @@ export function TargetEntryPanel({
               </p>
               <ul className="mt-2 space-y-1 text-xs">
                 {articleMismatchErrors.slice(0, 5).map((e) => (
-                  <li key={`${e.division}-${e.model}`}>
-                    {e.division} {e.model}: model {e.modelTotal} vs articles {e.articleSum} (
-                    {e.diff > 0 ? "+" : ""}
+                  <li key={`${e.division}-${e.model}-${e.salesGroup}`}>
+                    {e.division} {e.model} · {e.salesGroup}: model {e.modelTotal} vs articles{" "}
+                    {e.articleSum} ({e.diff > 0 ? "+" : ""}
                     {e.diff})
                   </li>
                 ))}
@@ -491,7 +517,9 @@ export function TargetEntryPanel({
 
       {!hasGrid && (
         <p className="border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-          No divisions are available for your account.
+          {divisions.length === 0
+            ? "No divisions are available for your account."
+            : "No models are configured for this brand and the selected sales groups."}
         </p>
       )}
 
@@ -499,223 +527,222 @@ export function TargetEntryPanel({
         <div className="overflow-auto border border-slate-300 bg-white shadow-sm">
           <table className="min-w-full border-collapse text-sm">
             <thead>
-              <tr className="bg-rose-100/80">
+              <tr className="bg-slate-200/80">
                 <th
-                  colSpan={3}
-                  className="sticky left-0 z-20 border border-slate-300 bg-rose-100 px-3 py-1.5 text-left text-xs font-semibold text-slate-700"
+                  rowSpan={3}
+                  className="sticky left-0 z-20 min-w-[14rem] border border-slate-300 bg-slate-200 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-700"
                 >
-                  {formatPeriod(plan.month, plan.year)}
+                  Model
                 </th>
-                <th className="border border-slate-300 px-3 py-1.5 text-center text-xs font-semibold text-slate-700">
-                  Units
-                </th>
-              </tr>
-              <tr className="bg-rose-50">
-                <th
-                  colSpan={3}
-                  className="sticky left-0 z-20 border border-slate-300 bg-rose-50 px-3 py-1.5 text-left text-xs font-medium text-slate-600"
-                >
-                  Sales Group
-                </th>
-                <th className="border border-slate-300 px-3 py-1.5 text-center text-xs font-semibold text-slate-800">
-                  {salesGroup?.name}
+                {salesGroupColumns.map((group) => (
+                  <th
+                    key={`hdr-${group.code}`}
+                    className="min-w-[7.5rem] border border-slate-300 px-2 py-1.5 text-center text-xs font-semibold text-slate-800"
+                  >
+                    {group.name}
+                  </th>
+                ))}
+                <th className="min-w-[6.5rem] border border-slate-300 bg-sky-100 px-2 py-1.5 text-center text-xs font-semibold text-slate-800">
+                  Total
                 </th>
               </tr>
               <tr className="bg-slate-100">
-                <th className="sticky left-0 z-20 w-9 border border-slate-300 bg-slate-100" />
-                <th className="sticky left-9 z-20 border border-slate-300 bg-slate-100 px-2 py-1.5 text-left text-xs font-medium text-slate-600">
-                  Code
+                {salesGroupColumns.map((group) => (
+                  <th
+                    key={`metric-${group.code}`}
+                    className="border border-slate-300 px-2 py-1 text-center text-[11px] font-medium text-slate-600"
+                  >
+                    Target Qty
+                  </th>
+                ))}
+                <th className="border border-slate-300 bg-sky-50 px-2 py-1 text-center text-[11px] font-medium text-slate-600">
+                  Target Qty
                 </th>
-                <th className="sticky left-[7.5rem] z-20 border border-slate-300 bg-slate-100 px-2 py-1.5 text-left text-xs font-medium text-slate-600">
-                  Model / Article
-                </th>
-                <th className="border border-slate-300 bg-slate-100 px-2 py-1.5 text-center text-xs font-medium text-slate-600">
-                  Target
+              </tr>
+              <tr className="bg-slate-50">
+                {salesGroupColumns.map((group) => (
+                  <th
+                    key={`uom-${group.code}`}
+                    className="border border-slate-300 px-2 py-0.5 text-center text-[10px] font-medium uppercase tracking-wide text-slate-500"
+                  >
+                    EA
+                  </th>
+                ))}
+                <th className="border border-slate-300 bg-sky-50 px-2 py-0.5 text-center text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                  EA
                 </th>
               </tr>
             </thead>
             <tbody>
-              {divisions.map((division) => {
-                const models = getModels(division, salesGroup);
-                const isExpanded = expandedDivisions.has(division.id);
-                const divisionTotal = models.reduce((sum, model) => {
-                  return sum + (parseInt(values[rowKey(model)], 10) || 0);
-                }, 0);
+              {models.map((model, rowIndex) => {
+                const articles = getArticleCodesForModel(division.name, model);
+                const hasArticles = articles.length > 0;
+                const showArticles = expandedArticles.has(
+                  articleExpandKey(division.name, model)
+                );
+                const modelRowTotal = rowTotal(model);
 
                 return (
-                  <Fragment key={division.id}>
+                  <Fragment key={`model-${division.id}-${model}`}>
                     <tr
-                      className="cursor-pointer bg-slate-50 font-semibold hover:bg-slate-100"
-                      onClick={() => toggleDivision(division.id)}
+                      className={cn(rowIndex % 2 === 0 ? "bg-sky-50/50" : "bg-white")}
                     >
-                      <td
-                        colSpan={3}
-                        className="sticky left-0 z-10 border border-slate-300 bg-inherit px-3 py-2 text-slate-900"
-                      >
-                        <span className="inline-flex items-center gap-2">
-                          {isExpanded ? (
-                            <ChevronDown className="h-4 w-4" />
+                      <td className="sticky left-0 z-10 border border-slate-200 bg-inherit px-2 py-1.5">
+                        <div className="flex items-start gap-1.5">
+                          {hasArticles ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleArticles(model)}
+                              className="mt-0.5 shrink-0 rounded p-0.5 text-slate-500 hover:bg-slate-100"
+                              aria-label={
+                                showArticles ? `Collapse articles for ${model}` : `Expand articles for ${model}`
+                              }
+                            >
+                              {showArticles ? (
+                                <ChevronDown className="h-3.5 w-3.5" />
+                              ) : (
+                                <ChevronRight className="h-3.5 w-3.5" />
+                              )}
+                            </button>
                           ) : (
-                            <ChevronRight className="h-4 w-4" />
+                            <span className="mt-0.5 inline-block w-4 shrink-0 text-center text-slate-400">
+                              –
+                            </span>
                           )}
-                          {division.name}
-                          <span className="text-xs font-normal text-slate-500">
-                            ({models.length} models · {divisionTotal.toLocaleString()} units)
-                          </span>
-                        </span>
+                          <div className="flex min-w-0 flex-col gap-0.5">
+                            <span className="font-medium text-slate-900">{model}</span>
+                            {hasArticles && !readOnly && (
+                              <select
+                                className="h-6 max-w-[140px] rounded border border-slate-200 bg-white px-1 text-[10px] text-slate-600"
+                                value={showArticles ? "articles" : "model"}
+                                onChange={(e) => {
+                                  const k = articleExpandKey(division.name, model);
+                                  setExpandedArticles((prev) => {
+                                    const next = new Set(prev);
+                                    if (e.target.value === "articles") next.add(k);
+                                    else next.delete(k);
+                                    return next;
+                                  });
+                                }}
+                                disabled={!editable}
+                              >
+                                <option value="model">Model level</option>
+                                <option value="articles">+ Articles (optional)</option>
+                              </select>
+                            )}
+                            {hasArticles && readOnly && showArticles && (
+                              <span className="text-[10px] text-amber-700">+ Articles</span>
+                            )}
+                          </div>
+                        </div>
                       </td>
-                      <td className="border border-slate-300 px-2 py-2 text-center tabular-nums text-slate-700">
-                        {divisionTotal > 0 ? divisionTotal : ""}
+                      {salesGroupColumns.map((group) => {
+                        const key = modelCellKey(group.name, model);
+                        const mismatched = mismatchKeys.has(`${model}::${group.name}`);
+
+                        return (
+                          <td
+                            key={`cell-${group.code}-${model}`}
+                            className="border border-slate-200 p-0"
+                          >
+                            {isLocked ? (
+                              <div className="flex h-8 items-center justify-center px-1 text-sm tabular-nums text-slate-900">
+                                {values[key] || ""}
+                              </div>
+                            ) : (
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                className={cn(
+                                  "h-8 w-full bg-transparent px-1 text-center text-sm tabular-nums outline-none focus:bg-amber-50",
+                                  mismatched && "bg-red-100 ring-1 ring-inset ring-red-300"
+                                )}
+                                value={values[key] ?? ""}
+                                onChange={(e) => updateCell(key, e.target.value)}
+                                aria-label={`${division.name} ${model} / ${group.name}`}
+                              />
+                            )}
+                          </td>
+                        );
+                      })}
+                      <td className="border border-slate-200 bg-sky-50/60 px-2 py-1.5 text-center tabular-nums font-semibold text-slate-900">
+                        {modelRowTotal > 0 ? modelRowTotal.toLocaleString() : ""}
                       </td>
                     </tr>
 
-                    {isExpanded &&
-                      models.map((model, rowIndex) => {
-                        const articles = getArticleCodesForModel(division.name, model);
-                        const hasArticles = articles.length > 0;
-                        const showArticles = expandedArticles.has(
-                          articleKey(division.name, model)
-                        );
-                        const key = rowKey(model);
-                        const mismatched = mismatchModels.has(`${division.name}::${model}`);
+                    {showArticles &&
+                      articles.map((code) => (
+                        <tr
+                          key={`art-${division.id}-${model}-${code}`}
+                          className="bg-amber-50/40 text-xs"
+                        >
+                          <td className="sticky left-0 z-10 border border-slate-200 bg-inherit px-2 py-1 pl-8 font-mono text-[11px] text-amber-900">
+                            <span className="mr-1.5 text-slate-400">–</span>
+                            {code}
+                          </td>
+                          {salesGroupColumns.map((group) => {
+                            const aKey = articleCellKey(group.name, model, code);
+                            const mismatched = mismatchKeys.has(`${model}::${group.name}`);
 
-                        return (
-                          <Fragment key={`model-${division.id}-${model}`}>
-                            <tr
-                              className={cn(
-                                rowIndex % 2 === 0 ? "bg-sky-50/40" : "bg-white",
-                                mismatched && "bg-red-50/80"
-                              )}
-                            >
-                              <td className="sticky left-0 z-10 border border-slate-200 bg-inherit px-1 py-1 text-center">
-                                {hasArticles && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const k = articleKey(division.name, model);
-                                      setExpandedArticles((prev) => {
-                                        const next = new Set(prev);
-                                        if (next.has(k)) next.delete(k);
-                                        else next.add(k);
-                                        return next;
-                                      });
-                                    }}
-                                    className="rounded p-0.5 text-slate-500 hover:bg-slate-100"
-                                  >
-                                    {showArticles ? (
-                                      <ChevronDown className="h-3.5 w-3.5" />
-                                    ) : (
-                                      <ChevronRight className="h-3.5 w-3.5" />
-                                    )}
-                                  </button>
-                                )}
-                              </td>
-                              <td className="sticky left-9 z-10 border border-slate-200 bg-inherit px-2 py-1.5 font-mono text-xs text-slate-600">
-                                {model}
-                              </td>
-                              <td className="sticky left-[7.5rem] z-10 border border-slate-200 bg-inherit px-2 py-1.5">
-                                <div className="flex flex-col gap-0.5">
-                                  <span className="font-medium text-slate-900">{model}</span>
-                                  {hasArticles && !readOnly && (
-                                    <select
-                                      className="h-6 max-w-[130px] rounded border border-slate-200 bg-white px-1 text-[10px] text-slate-600"
-                                      value={showArticles ? "articles" : "model"}
-                                      onChange={(e) => {
-                                        const k = articleKey(division.name, model);
-                                        setExpandedArticles((prev) => {
-                                          const next = new Set(prev);
-                                          if (e.target.value === "articles") next.add(k);
-                                          else next.delete(k);
-                                          return next;
-                                        });
-                                      }}
-                                      disabled={!editable}
-                                    >
-                                      <option value="model">Model level</option>
-                                      <option value="articles">+ Articles (optional)</option>
-                                    </select>
-                                  )}
-                                  {hasArticles && readOnly && showArticles && (
-                                    <span className="text-[10px] text-amber-700">+ Articles</span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="border border-slate-200 p-0">
+                            return (
+                              <td
+                                key={`art-cell-${group.code}-${model}-${code}`}
+                                className="border border-slate-200 p-0"
+                              >
                                 {isLocked ? (
-                                  <div className="flex h-8 items-center justify-center px-1 text-sm tabular-nums text-slate-900">
-                                    {values[key] || ""}
+                                  <div className="flex h-7 items-center justify-center px-1 text-xs tabular-nums text-amber-900">
+                                    {articleValues[aKey] || ""}
                                   </div>
                                 ) : (
                                   <input
                                     type="text"
                                     inputMode="numeric"
                                     className={cn(
-                                      "h-8 w-full bg-transparent px-1 text-center text-sm tabular-nums outline-none focus:bg-amber-50",
-                                      mismatched && "bg-red-100 ring-1 ring-inset ring-red-300"
+                                      "h-7 w-full bg-transparent px-1 text-center text-xs tabular-nums outline-none focus:bg-amber-100",
+                                      mismatched &&
+                                        "bg-red-100 ring-1 ring-inset ring-red-300"
                                     )}
-                                    value={values[key] ?? ""}
-                                    onChange={(e) => updateCell(key, e.target.value)}
-                                    aria-label={`${division.name} ${model} / ${salesGroup.name}`}
+                                    value={articleValues[aKey] ?? ""}
+                                    onChange={(e) => updateArticleCell(aKey, e.target.value)}
+                                    aria-label={`${model} ${code} / ${group.name}`}
                                   />
                                 )}
                               </td>
-                            </tr>
-
-                            {showArticles &&
-                              articles.map((code) => {
-                                const aKey = rowKey(model, null, code);
-                                return (
-                                  <tr
-                                    key={`art-${division.id}-${model}-${code}`}
-                                    className="bg-amber-50/30 text-xs"
-                                  >
-                                    <td className="sticky left-0 z-10 border border-slate-200 bg-inherit" />
-                                    <td className="sticky left-9 z-10 border border-slate-200 bg-inherit px-2 py-1 text-slate-400">
-                                      ↳
-                                    </td>
-                                    <td className="sticky left-[7.5rem] z-10 border border-slate-200 bg-inherit px-2 py-1 font-mono text-[11px] text-amber-900">
-                                      {code}
-                                    </td>
-                                    <td className="border border-slate-200 p-0">
-                                      {isLocked ? (
-                                        <div className="flex h-7 items-center justify-center px-1 text-xs tabular-nums text-amber-900">
-                                          {articleValues[aKey] || ""}
-                                        </div>
-                                      ) : (
-                                        <input
-                                          type="text"
-                                          inputMode="numeric"
-                                          className={cn(
-                                            "h-7 w-full bg-transparent px-1 text-center text-xs tabular-nums outline-none focus:bg-amber-100",
-                                            mismatched &&
-                                              "bg-red-100 ring-1 ring-inset ring-red-300"
-                                          )}
-                                          value={articleValues[aKey] ?? ""}
-                                          onChange={(e) =>
-                                            updateArticleCell(aKey, e.target.value)
-                                          }
-                                          aria-label={`${model} ${code}`}
-                                        />
-                                      )}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                          </Fragment>
-                        );
-                      })}
+                            );
+                          })}
+                          <td className="border border-slate-200 bg-sky-50/40 px-2 py-1 text-center tabular-nums font-medium text-amber-900">
+                            {salesGroupColumns.reduce((sum, group) => {
+                              return (
+                                sum +
+                                (parseInt(
+                                  articleValues[articleCellKey(group.name, model, code)],
+                                  10
+                                ) || 0)
+                              );
+                            }, 0) || ""}
+                          </td>
+                        </tr>
+                      ))}
                   </Fragment>
                 );
               })}
-              <tr className="bg-slate-100 font-semibold">
-                <td
-                  colSpan={3}
-                  className="sticky left-0 z-10 border border-slate-300 bg-slate-100 px-3 py-2 text-xs uppercase tracking-wide text-slate-600"
-                >
-                  Total · {salesGroup?.name}
+              <tr className="bg-sky-100 font-semibold">
+                <td className="sticky left-0 z-10 border border-slate-300 bg-sky-100 px-3 py-2 text-xs uppercase tracking-wide text-slate-700">
+                  Total
                 </td>
-                <td className="border border-slate-300 px-2 py-2 text-center tabular-nums">
-                  {total > 0 ? total.toLocaleString() : ""}
+                {salesGroupColumns.map((group) => {
+                  const colTotal = columnTotals[group.name] || 0;
+                  return (
+                    <td
+                      key={`tot-${group.code}`}
+                      className="border border-slate-300 px-2 py-2 text-center tabular-nums text-slate-900"
+                    >
+                      {colTotal > 0 ? colTotal.toLocaleString() : ""}
+                    </td>
+                  );
+                })}
+                <td className="border border-slate-300 bg-sky-200/70 px-2 py-2 text-center tabular-nums text-slate-900">
+                  {grandTotal > 0 ? grandTotal.toLocaleString() : ""}
                 </td>
               </tr>
             </tbody>
