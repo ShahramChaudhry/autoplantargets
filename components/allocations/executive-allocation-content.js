@@ -74,9 +74,14 @@ export async function ExecutiveAllocationContent({ plan, user }) {
             defaultOfficeName={offices[0]?.name || ""}
           />
 
-          {!isEditable && (
+          {!isEditable && plan.status === "completed" && (
+            <p className="text-xs text-emerald-700">
+              Plan is completed — D&amp;S, sales office, and executive allocations reconciled.
+            </p>
+          )}
+          {!isEditable && plan.status !== "completed" && (
             <p className="text-xs text-slate-500">
-              Sales executive allocation is complete for this plan and is read-only.
+              Sales executive allocation is locked for this plan.
             </p>
           )}
         </>

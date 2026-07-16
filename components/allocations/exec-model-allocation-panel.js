@@ -162,6 +162,7 @@ export function ExecModelAllocationPanel({
       }
 
       let savedCount = 0;
+      let lastResponse = null;
       for (let i = 0; i < groupsToSave.length; i++) {
         const group = groupsToSave[i];
         const rows = expandExecGroupAllocationsToModelLeaves({
@@ -188,13 +189,31 @@ export function ExecModelAllocationPanel({
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || `Failed to save ${group.name}`);
         savedCount += data.savedCount || 0;
+        lastResponse = data;
       }
 
-      setMessage(
-        markComplete
-          ? "Sales executive allocation marked complete."
-          : `Draft saved (${savedCount} line${savedCount === 1 ? "" : "s"}).`
-      );
+      if (markComplete) {
+        const recon = lastResponse?.reconciliation;
+        if (recon?.passed && lastResponse?.planStatus === "completed") {
+          setMessage(
+            `Allocation complete and reconciled. D&S ${recon.dsSum} = Office ${recon.npmSum} = Exec ${recon.execSum}. Plan marked Completed.`
+          );
+        } else if (recon && !recon.allOfficesComplete) {
+          setMessage(
+            `This office is fully allocated. Waiting on other offices before reconciliation: ${(recon.incompleteOffices || []).join(", ") || "—"}.`
+          );
+        } else if (lastResponse?.planStatus === "reconciliation_failed") {
+          setMessage(
+            `Reconciliation failed: D&S ${recon?.dsSum} vs Office ${recon?.npmSum} vs Exec ${recon?.execSum}. Correct allocations and mark complete again.`
+          );
+        } else {
+          setMessage("Sales executive allocation marked complete.");
+        }
+      } else {
+        setMessage(
+          `Draft saved (${savedCount} line${savedCount === 1 ? "" : "s"}).`
+        );
+      }
       router.refresh();
     } catch (err) {
       setError(err.message || "Failed to save");

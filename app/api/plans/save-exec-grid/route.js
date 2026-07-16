@@ -226,11 +226,33 @@ export async function POST(request) {
 
     // No legacy flat sync needed — reconciliation reads sales_exec_targets
 
+    let planStatus = period.status;
+    let reconciliation = null;
+
     if (markComplete) {
-      await supabase
-        .from("planning_periods")
-        .update({ status: "executive_allocation", updated_at: new Date().toISOString() })
-        .eq("id", periodId);
+      const {
+        calculateReconciliation,
+        applyReconciliationResult,
+      } = await import("@/lib/reconciliation");
+
+      const result = await calculateReconciliation(supabase, periodId);
+      reconciliation = result;
+
+      if (result.allOfficesComplete) {
+        // All NPM office leaves match exec totals → auto-reconcile to completed / failed
+        planStatus = await applyReconciliationResult(supabase, {
+          periodId,
+          userId: user.id,
+          result,
+        });
+      } else {
+        // This office is done; other offices still need BM allocation — keep editable
+        planStatus = "retail_allocation";
+        await supabase
+          .from("planning_periods")
+          .update({ status: planStatus, updated_at: new Date().toISOString() })
+          .eq("id", periodId);
+      }
     }
 
     await logAudit(supabase, {
@@ -245,6 +267,16 @@ export async function POST(request) {
         allocated: status.allocatedTotal,
         office_total: status.officeTotal,
         mark_complete: markComplete,
+        reconciliation: reconciliation
+          ? {
+              passed: reconciliation.passed,
+              allOfficesComplete: reconciliation.allOfficesComplete,
+              incompleteOffices: reconciliation.incompleteOffices,
+              dsSum: reconciliation.dsSum,
+              npmSum: reconciliation.npmSum,
+              execSum: reconciliation.execSum,
+            }
+          : null,
       },
       planningPeriodId: periodId,
     });
@@ -253,7 +285,8 @@ export async function POST(request) {
       success: true,
       savedCount: savedIds.length,
       status,
-      planStatus: markComplete ? "executive_allocation" : period.status,
+      planStatus,
+      reconciliation,
     });
   } catch (err) {
     return NextResponse.json(

@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
-import { calculateReconciliation, logAudit } from "@/lib/workflow";
+import {
+  calculateReconciliation,
+  applyReconciliationResult,
+} from "@/lib/reconciliation";
 import { ROLES } from "@/lib/constants";
 
 export async function POST(request) {
@@ -15,42 +18,17 @@ export async function POST(request) {
   }
 
   const { periodId } = await request.json();
+  if (!periodId) {
+    return NextResponse.json({ error: "periodId is required" }, { status: 400 });
+  }
+
   const supabase = await createClient();
   const result = await calculateReconciliation(supabase, periodId);
-
-  const newStatus = result.passed ? "completed" : "reconciliation_failed";
-
-  await supabase
-    .from("planning_periods")
-    .update({ status: newStatus })
-    .eq("id", periodId);
-
-  await logAudit(supabase, {
+  const newStatus = await applyReconciliationResult(supabase, {
+    periodId,
     userId: user.id,
-    action: result.passed ? "reconciliation_passed" : "reconciliation_failed",
-    entityType: "planning_period",
-    entityId: periodId,
-    details: result,
-    planningPeriodId: periodId,
+    result,
   });
-
-  if (!result.passed) {
-    const { data: branchManagers } = await supabase
-      .from("users")
-      .select("id")
-      .eq("role", ROLES.BRANCH_MANAGER);
-
-    const message = `Reconciliation failed: Model targets (${result.modelSum}) vs Sales Office (${result.officeSum}) vs Executive (${result.executiveSum}). Please review allocations.`;
-
-    for (const bm of branchManagers || []) {
-      await supabase.from("notifications").insert({
-        user_id: bm.id,
-        type: "reconciliation_failed",
-        message,
-        planning_period_id: periodId,
-      });
-    }
-  }
 
   return NextResponse.json({ ...result, status: newStatus });
 }
