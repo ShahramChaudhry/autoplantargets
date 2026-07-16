@@ -62,13 +62,7 @@ export function NpmOfficeAllocationPanel({
   const planPath = planSlug(plan.month, plan.year);
   const isLocked = !editable;
 
-  const displayGroups = useMemo(() => {
-    if (!division) return salesGroupColumns;
-    const withDs = salesGroupColumns.filter(
-      (g) => dsBrandGroupTotal(targets, division.name, g.name) > 0
-    );
-    return withDs.length > 0 ? withDs : salesGroupColumns;
-  }, [division, salesGroupColumns, targets]);
+  const displayGroups = salesGroupColumns;
 
   useEffect(() => {
     if (divisions.length === 0) return;
@@ -225,7 +219,7 @@ export function NpmOfficeAllocationPanel({
     }
   }
 
-  const hasGrid = division && offices.length > 0 && grandDs > 0;
+  const hasGrid = division && offices.length > 0;
 
   return (
     <div className="space-y-4">
@@ -278,7 +272,7 @@ export function NpmOfficeAllocationPanel({
               type="button"
               size="sm"
               onClick={handleSave}
-              disabled={saving || !hasGrid || overGroups.length > 0}
+              disabled={saving || !hasGrid || overGroups.length > 0 || grandDs <= 0}
               className="gap-1.5"
             >
               <Save className="h-3.5 w-3.5" />
@@ -323,9 +317,7 @@ export function NpmOfficeAllocationPanel({
         <p className="border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
           {divisions.length === 0
             ? "No divisions are available for your account."
-            : grandDs <= 0
-              ? "No D&S targets for this brand yet. Finalize a plan with model targets first."
-              : "No sales offices are configured for this brand."}
+            : "No sales offices are configured for this brand."}
         </p>
       )}
 
