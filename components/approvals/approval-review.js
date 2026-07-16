@@ -13,9 +13,29 @@ import { formatAuditEntry } from "@/lib/audit";
 import { cn } from "@/lib/utils";
 import { AlertCircle } from "lucide-react";
 
+function PlanPickCard({ plan: p, active, href, subtitle }) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "rounded-xl border px-4 py-3 transition-colors",
+        active
+          ? "border-slate-900 bg-slate-900 text-white"
+          : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+      )}
+    >
+      <p className="font-medium">{planLabel(p.month, p.year)}</p>
+      <p className={cn("text-xs", active ? "text-slate-300" : "text-slate-500")}>
+        {STATUS_LABELS[p.status] || p.status}
+        {subtitle ? ` · ${subtitle}` : ""}
+      </p>
+    </Link>
+  );
+}
+
 /**
  * Shared approvals workspace for B2B Director and Managing Director.
- * Pending queue + lifecycle + read-only grid + approve / request changes.
+ * Pending queue + past plans + lifecycle + read-only grid + approve / request changes.
  */
 export function ApprovalReview({
   plan,
@@ -24,6 +44,7 @@ export function ApprovalReview({
   modelAllocations,
   articleAllocations,
   pendingPlans,
+  historyPlans = [],
   awaitingReview,
   user,
   variant = "b2b",
@@ -43,7 +64,8 @@ export function ApprovalReview({
       const next = remaining[0];
       router.push(`/approvals?plan=${planSlug(next.month, next.year)}`);
     } else {
-      router.push("/approvals");
+      // Stay on the plan just acted on so directors can still view it in history
+      router.push(`/approvals?plan=${planSlug(plan.month, plan.year)}`);
     }
   }
 
@@ -58,7 +80,7 @@ export function ApprovalReview({
         </h2>
         {pendingPlans.length === 0 ? (
           <Card>
-            <CardContent className="py-8 text-center text-sm text-slate-500">
+            <CardContent className="py-6 text-center text-sm text-slate-500">
               {isMD
                 ? "No plans are currently awaiting final MD approval."
                 : "No plans are currently awaiting B2B review."}
@@ -66,28 +88,42 @@ export function ApprovalReview({
           </Card>
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {pendingPlans.map((p) => {
-              const slug = planSlug(p.month, p.year);
-              const active = plan?.id === p.id;
-              return (
-                <Link
-                  key={p.id}
-                  href={`/approvals?plan=${slug}`}
-                  className={cn(
-                    "rounded-xl border px-4 py-3 transition-colors",
-                    active
-                      ? "border-slate-900 bg-slate-900 text-white"
-                      : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-                  )}
-                >
-                  <p className="font-medium">{planLabel(p.month, p.year)}</p>
-                  <p className={cn("text-xs", active ? "text-slate-300" : "text-slate-500")}>
-                    {STATUS_LABELS[p.status]}
-                    {isMD ? " · awaiting final approval" : " · submitted for review"}
-                  </p>
-                </Link>
-              );
-            })}
+            {pendingPlans.map((p) => (
+              <PlanPickCard
+                key={p.id}
+                plan={p}
+                active={plan?.id === p.id}
+                href={`/approvals?plan=${planSlug(p.month, p.year)}`}
+                subtitle={isMD ? "awaiting your approval" : "awaiting your review"}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Past &amp; In-Progress Plans ({historyPlans.length})
+        </h2>
+        {historyPlans.length === 0 ? (
+          <Card>
+            <CardContent className="py-6 text-center text-sm text-slate-500">
+              {isMD
+                ? "No past plans yet. Plans appear here after they reach MD approval or later stages."
+                : "No past plans yet. Plans appear here after you review them or once they move past B2B."}
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {historyPlans.map((p) => (
+              <PlanPickCard
+                key={p.id}
+                plan={p}
+                active={plan?.id === p.id}
+                href={`/approvals?plan=${planSlug(p.month, p.year)}`}
+                subtitle="view only"
+              />
+            ))}
           </div>
         )}
       </div>
@@ -99,7 +135,11 @@ export function ApprovalReview({
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <CardTitle>
                   {planLabel(plan.month, plan.year)} —{" "}
-                  {isMD ? "Final Approval" : "Plan Review"}
+                  {awaitingReview
+                    ? isMD
+                      ? "Final Approval"
+                      : "Plan Review"
+                    : "Plan Details"}
                 </CardTitle>
                 <Badge variant={getStatusBadgeVariant(plan.status)}>
                   {STATUS_LABELS[plan.status]}
@@ -125,11 +165,13 @@ export function ApprovalReview({
               </div>
 
               {!awaitingReview && (
-                <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                  {isMD
-                    ? "This plan is not currently awaiting MD approval."
-                    : "This plan is not currently awaiting B2B review."}
+                <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
+                  <span>
+                    You can view this plan&apos;s grid and history. Approval actions are only
+                    available when a plan is pending{" "}
+                    {isMD ? "your final approval" : "your B2B review"}.
+                  </span>
                 </div>
               )}
 
@@ -139,17 +181,19 @@ export function ApprovalReview({
                   status={plan.status}
                   role={user.role}
                   showCommentAlways
-                  commentLabel="Review comments"
+                  commentLabel="Review comments (required when requesting changes)"
                   onSuccess={handleActionSuccess}
                 />
               )}
             </CardContent>
           </Card>
 
-          {isMD && reviewNotes.length > 0 && (
+          {reviewNotes.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">B2B Review Notes</CardTitle>
+                <CardTitle className="text-base">
+                  {isMD ? "Review Notes" : "Your Review Notes"}
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
                 {reviewNotes.map((log) => {
@@ -195,6 +239,15 @@ export function ApprovalReview({
             </CardContent>
           </Card>
         </>
+      )}
+
+      {!plan && pendingPlans.length === 0 && historyPlans.length === 0 && (
+        <Card>
+          <CardContent className="py-12 text-center text-sm text-slate-500">
+            No plans have been submitted for{" "}
+            {isMD ? "MD approval" : "B2B review"} yet.
+          </CardContent>
+        </Card>
       )}
     </div>
   );
