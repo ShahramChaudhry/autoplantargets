@@ -15,7 +15,7 @@ import {
 } from "@/src/data";
 import { getArticleCodesForModel } from "@/lib/constants";
 import { planSlug, planStepPath } from "@/lib/plans";
-import { Save, Send, ChevronDown, ChevronRight, Plus, AlertTriangle } from "lucide-react";
+import { Save, Send, ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { CreatePlanModal } from "@/components/plan/create-plan-modal";
 
 function articleExpandKey(divisionName, model) {
@@ -30,6 +30,26 @@ function modelCellKey(salesGroupName, model) {
 /** Article cell key scoped to a sales group column. */
 function articleCellKey(salesGroupName, model, code) {
   return `${salesGroupName}::${rowKey(model, null, code)}`;
+}
+
+function parseUnits(raw) {
+  if (raw === "" || raw === undefined || raw === null) return 0;
+  const n = parseInt(String(raw), 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** Sum article units for one model × sales group. */
+function articleSumForGroup(articleValues, salesGroupName, model, articleCodes) {
+  return (articleCodes || []).reduce((sum, code) => {
+    return sum + parseUnits(articleValues[articleCellKey(salesGroupName, model, code)]);
+  }, 0);
+}
+
+/** True when any article has a value for this model × sales group. */
+function hasArticleValuesForGroup(articleValues, salesGroupName, model, articleCodes) {
+  return (articleCodes || []).some(
+    (code) => parseUnits(articleValues[articleCellKey(salesGroupName, model, code)]) > 0
+  );
 }
 
 /** Prefer brand+group+model with null office; fall back to summing legacy office rows. */
@@ -52,48 +72,6 @@ function resolveModelTarget(targets, brand, salesGroup, model) {
     target_units: units,
     _aggregatedFromOffices: true,
   };
-}
-
-function computeArticleMismatches({
-  division,
-  salesGroups,
-  models,
-  expandedArticles,
-  values,
-  articleValues,
-}) {
-  if (!division) return [];
-  const errors = [];
-
-  for (const model of models) {
-    if (!expandedArticles.has(articleExpandKey(division.name, model))) continue;
-
-    for (const group of salesGroups) {
-      const modelTotal = parseInt(values[modelCellKey(group.name, model)], 10) || 0;
-      const articles = getArticleCodesForModel(division.name, model);
-      let articleSum = 0;
-      let hasArticleValue = false;
-
-      for (const code of articles) {
-        const units = parseInt(articleValues[articleCellKey(group.name, model, code)], 10) || 0;
-        if (units > 0) hasArticleValue = true;
-        articleSum += units;
-      }
-
-      if (hasArticleValue && articleSum !== modelTotal) {
-        errors.push({
-          division: division.name,
-          model,
-          salesGroup: group.name,
-          modelTotal,
-          articleSum,
-          diff: articleSum - modelTotal,
-        });
-      }
-    }
-  }
-
-  return errors;
 }
 
 /**
@@ -184,6 +162,20 @@ export function TargetEntryPanel({
             );
           }
         }
+
+        // If articles exist for this model×group, model cell shows their sum
+        const articleCodes = getArticleCodesForModel(division.name, model);
+        if (
+          hasArticleValuesForGroup(nextArticleValues, group.name, model, articleCodes)
+        ) {
+          const sum = articleSumForGroup(
+            nextArticleValues,
+            group.name,
+            model,
+            articleCodes
+          );
+          nextValues[key] = sum > 0 ? String(sum) : "";
+        }
       }
     }
 
@@ -191,18 +183,16 @@ export function TargetEntryPanel({
     setRecordIds(nextIds);
     setArticleValues(nextArticleValues);
 
-    if (readOnly) {
-      const articleExpand = new Set();
-      for (const model of models) {
-        const codes = getArticleCodesForModel(division.name, model);
-        const hasData = salesGroupColumns.some((group) =>
-          codes.some((code) => {
-            const raw = nextArticleValues[articleCellKey(group.name, model, code)];
-            return raw && parseInt(raw, 10) > 0;
-          })
-        );
-        if (hasData) articleExpand.add(articleExpandKey(division.name, model));
-      }
+    // Auto-expand models that already have article breakdown
+    const articleExpand = new Set();
+    for (const model of models) {
+      const codes = getArticleCodesForModel(division.name, model);
+      const hasData = salesGroupColumns.some((group) =>
+        hasArticleValuesForGroup(nextArticleValues, group.name, model, codes)
+      );
+      if (hasData) articleExpand.add(articleExpandKey(division.name, model));
+    }
+    if (readOnly || articleExpand.size > 0) {
       setExpandedArticles(articleExpand);
     }
 
@@ -217,27 +207,6 @@ export function TargetEntryPanel({
     articleAllocations,
     readOnly,
   ]);
-
-  const articleMismatchErrors = useMemo(
-    () =>
-      computeArticleMismatches({
-        division,
-        salesGroups: salesGroupColumns,
-        models,
-        expandedArticles,
-        values,
-        articleValues,
-      }),
-    [division, salesGroupColumns, models, expandedArticles, values, articleValues]
-  );
-
-  const mismatchKeys = useMemo(() => {
-    const set = new Set();
-    for (const e of articleMismatchErrors) {
-      set.add(`${e.model}::${e.salesGroup}`);
-    }
-    return set;
-  }, [articleMismatchErrors]);
 
   const columnTotals = useMemo(() => {
     const totals = {};
@@ -266,14 +235,37 @@ export function TargetEntryPanel({
     }
   }
 
-  function updateCell(key, value) {
+  /** Edit model cell — clears article breakdown for that sales group (model becomes source). */
+  function updateCell(salesGroupName, model, value) {
     if (value !== "" && !/^\d+$/.test(value)) return;
+    const key = modelCellKey(salesGroupName, model);
+    const articles = getArticleCodesForModel(division.name, model);
+
+    setArticleValues((prev) => {
+      const next = { ...prev };
+      for (const code of articles) {
+        delete next[articleCellKey(salesGroupName, model, code)];
+      }
+      return next;
+    });
     setValues((prev) => ({ ...prev, [key]: value }));
   }
 
-  function updateArticleCell(key, value) {
+  /** Edit article cell — model row auto-sums article totals for that sales group. */
+  function updateArticleCell(salesGroupName, model, code, value) {
     if (value !== "" && !/^\d+$/.test(value)) return;
-    setArticleValues((prev) => ({ ...prev, [key]: value }));
+    const aKey = articleCellKey(salesGroupName, model, code);
+    const articles = getArticleCodesForModel(division.name, model);
+
+    setArticleValues((prev) => {
+      const next = { ...prev, [aKey]: value };
+      const sum = articleSumForGroup(next, salesGroupName, model, articles);
+      setValues((vPrev) => ({
+        ...vPrev,
+        [modelCellKey(salesGroupName, model)]: sum > 0 ? String(sum) : "",
+      }));
+      return next;
+    });
   }
 
   function toggleArticles(model) {
@@ -286,16 +278,28 @@ export function TargetEntryPanel({
     });
   }
 
+  /** Collapse to model-level entry: keep model totals, drop article breakdown. */
+  function setModelLevelOnly(model) {
+    const articles = getArticleCodesForModel(division.name, model);
+    setExpandedArticles((prev) => {
+      const next = new Set(prev);
+      next.delete(articleExpandKey(division.name, model));
+      return next;
+    });
+    setArticleValues((prev) => {
+      const next = { ...prev };
+      for (const group of salesGroupColumns) {
+        for (const code of articles) {
+          delete next[articleCellKey(group.name, model, code)];
+        }
+      }
+      return next;
+    });
+  }
+
   async function handleSave(goToSubmit = false) {
     if (!division) {
       setError("Select a Division / Brand first.");
-      return;
-    }
-
-    if (articleMismatchErrors.length > 0) {
-      setError(
-        `Article totals must match model totals for ${articleMismatchErrors.length} cell(s). Fix before saving.`
-      );
       return;
     }
 
@@ -310,11 +314,17 @@ export function TargetEntryPanel({
       for (const group of salesGroupColumns) {
         for (const model of models) {
           const key = modelCellKey(group.name, model);
-          const raw = values[key];
-          const units = raw === "" || raw === undefined ? 0 : parseInt(raw, 10);
-          if (Number.isNaN(units) || units < 0) {
-            throw new Error(`Invalid target for ${division.name} ${model} / ${group.name}`);
-          }
+          const articles = getArticleCodesForModel(division.name, model);
+          const usingArticles = hasArticleValuesForGroup(
+            articleValues,
+            group.name,
+            model,
+            articles
+          );
+          const units = usingArticles
+            ? articleSumForGroup(articleValues, group.name, model, articles)
+            : parseUnits(values[key]);
+
           if (!recordIds[key] && units === 0) continue;
 
           targetPayload.push({
@@ -325,11 +335,11 @@ export function TargetEntryPanel({
             target_units: units,
           });
 
-          if (expandedArticles.has(articleExpandKey(division.name, model))) {
-            const articles = getArticleCodesForModel(division.name, model);
+          if (usingArticles) {
             for (const code of articles) {
-              const aRaw = articleValues[articleCellKey(group.name, model, code)];
-              const aUnits = aRaw === "" || aRaw === undefined ? 0 : parseInt(aRaw, 10);
+              const aUnits = parseUnits(
+                articleValues[articleCellKey(group.name, model, code)]
+              );
               if (aUnits > 0) {
                 articlePayload.push({
                   brand: division.name,
@@ -460,7 +470,7 @@ export function TargetEntryPanel({
                 variant="outline"
                 size="sm"
                 onClick={() => handleSave(false)}
-                disabled={saving || !hasGrid || articleMismatchErrors.length > 0}
+                disabled={saving || !hasGrid}
                 className="gap-1.5"
               >
                 <Save className="h-3.5 w-3.5" />
@@ -470,7 +480,7 @@ export function TargetEntryPanel({
                 type="button"
                 size="sm"
                 onClick={() => handleSave(true)}
-                disabled={saving || !hasGrid || articleMismatchErrors.length > 0}
+                disabled={saving || !hasGrid}
                 className="gap-1.5"
               >
                 <Send className="h-3.5 w-3.5" />
@@ -482,37 +492,15 @@ export function TargetEntryPanel({
       </div>
 
       <p className="text-xs text-slate-500">
-        Select Month and Division/Brand, then enter model targets under each Sales Group column.
-        Expand a model for optional article breakdown — article totals must match the model total
-        in each column. Sales office allocation is handled later by Retail Head.
+        Select Month and Division/Brand, then enter targets under each Sales Group. Enter at model
+        level, or expand articles — article entries automatically roll up to the model total.
+        Sales office allocation is handled later by Retail Head.
       </p>
 
       {(error || message) && (
         <p className={cn("text-sm", error ? "text-red-600" : "text-emerald-700")}>
           {error || message}
         </p>
-      )}
-
-      {articleMismatchErrors.length > 0 && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <div>
-              <p className="font-medium">
-                Article breakdown must match model totals before you can save
-              </p>
-              <ul className="mt-2 space-y-1 text-xs">
-                {articleMismatchErrors.slice(0, 5).map((e) => (
-                  <li key={`${e.division}-${e.model}-${e.salesGroup}`}>
-                    {e.division} {e.model} · {e.salesGroup}: model {e.modelTotal} vs articles{" "}
-                    {e.articleSum} ({e.diff > 0 ? "+" : ""}
-                    {e.diff})
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </div>
       )}
 
       {!hasGrid && (
@@ -616,13 +604,15 @@ export function TargetEntryPanel({
                                 className="h-6 max-w-[140px] rounded border border-slate-200 bg-white px-1 text-[10px] text-slate-600"
                                 value={showArticles ? "articles" : "model"}
                                 onChange={(e) => {
-                                  const k = articleExpandKey(division.name, model);
-                                  setExpandedArticles((prev) => {
-                                    const next = new Set(prev);
-                                    if (e.target.value === "articles") next.add(k);
-                                    else next.delete(k);
-                                    return next;
-                                  });
+                                  if (e.target.value === "articles") {
+                                    setExpandedArticles((prev) => {
+                                      const next = new Set(prev);
+                                      next.add(articleExpandKey(division.name, model));
+                                      return next;
+                                    });
+                                  } else {
+                                    setModelLevelOnly(model);
+                                  }
                                 }}
                                 disabled={!editable}
                               >
@@ -638,27 +628,41 @@ export function TargetEntryPanel({
                       </td>
                       {salesGroupColumns.map((group) => {
                         const key = modelCellKey(group.name, model);
-                        const mismatched = mismatchKeys.has(`${model}::${group.name}`);
+                        const articlesDrive = hasArticleValuesForGroup(
+                          articleValues,
+                          group.name,
+                          model,
+                          articles
+                        );
 
                         return (
                           <td
                             key={`cell-${group.code}-${model}`}
                             className="border border-slate-200 p-0"
                           >
-                            {isLocked ? (
-                              <div className="flex h-8 items-center justify-center px-1 text-sm tabular-nums text-slate-900">
+                            {isLocked || articlesDrive ? (
+                              <div
+                                className={cn(
+                                  "flex h-8 items-center justify-center px-1 text-sm tabular-nums text-slate-900",
+                                  articlesDrive && !isLocked && "bg-slate-50 text-slate-700"
+                                )}
+                                title={
+                                  articlesDrive
+                                    ? "Auto-total from article breakdown"
+                                    : undefined
+                                }
+                              >
                                 {values[key] || ""}
                               </div>
                             ) : (
                               <input
                                 type="text"
                                 inputMode="numeric"
-                                className={cn(
-                                  "h-8 w-full bg-transparent px-1 text-center text-sm tabular-nums outline-none focus:bg-amber-50",
-                                  mismatched && "bg-red-100 ring-1 ring-inset ring-red-300"
-                                )}
+                                className="h-8 w-full bg-transparent px-1 text-center text-sm tabular-nums outline-none focus:bg-amber-50"
                                 value={values[key] ?? ""}
-                                onChange={(e) => updateCell(key, e.target.value)}
+                                onChange={(e) =>
+                                  updateCell(group.name, model, e.target.value)
+                                }
                                 aria-label={`${division.name} ${model} / ${group.name}`}
                               />
                             )}
@@ -682,7 +686,6 @@ export function TargetEntryPanel({
                           </td>
                           {salesGroupColumns.map((group) => {
                             const aKey = articleCellKey(group.name, model, code);
-                            const mismatched = mismatchKeys.has(`${model}::${group.name}`);
 
                             return (
                               <td
@@ -697,13 +700,16 @@ export function TargetEntryPanel({
                                   <input
                                     type="text"
                                     inputMode="numeric"
-                                    className={cn(
-                                      "h-7 w-full bg-transparent px-1 text-center text-xs tabular-nums outline-none focus:bg-amber-100",
-                                      mismatched &&
-                                        "bg-red-100 ring-1 ring-inset ring-red-300"
-                                    )}
+                                    className="h-7 w-full bg-transparent px-1 text-center text-xs tabular-nums outline-none focus:bg-amber-100"
                                     value={articleValues[aKey] ?? ""}
-                                    onChange={(e) => updateArticleCell(aKey, e.target.value)}
+                                    onChange={(e) =>
+                                      updateArticleCell(
+                                        group.name,
+                                        model,
+                                        code,
+                                        e.target.value
+                                      )
+                                    }
                                     aria-label={`${model} ${code} / ${group.name}`}
                                   />
                                 )}
@@ -714,10 +720,9 @@ export function TargetEntryPanel({
                             {salesGroupColumns.reduce((sum, group) => {
                               return (
                                 sum +
-                                (parseInt(
-                                  articleValues[articleCellKey(group.name, model, code)],
-                                  10
-                                ) || 0)
+                                parseUnits(
+                                  articleValues[articleCellKey(group.name, model, code)]
+                                )
                               );
                             }, 0) || ""}
                           </td>
