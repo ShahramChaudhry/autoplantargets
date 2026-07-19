@@ -20,12 +20,10 @@ export const userResponsibilities = {
     divisions: "all",
     offices: "all",
   },
-  // Branch Manager: only Dubai Toyota offices for the MVP demo
+  // Branch Manager: all offices so they can allocate every office NPM filled
   "branchmanager@autoplan.com": {
-    divisions: ["Toyota"],
-    offices: {
-      Toyota: ["Toyota-Dubai - DFC", "Toyota-Dubai - SZR"],
-    },
+    divisions: "all",
+    offices: "all",
   },
 };
 

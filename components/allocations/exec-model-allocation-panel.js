@@ -360,7 +360,7 @@ export function ExecModelAllocationPanel({
 
       {!offices.length && (
         <div className="border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
-          No sales offices are assigned to your account.
+          No sales offices are configured for Branch Manager allocation.
         </div>
       )}
 

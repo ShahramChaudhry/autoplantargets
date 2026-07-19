@@ -5,12 +5,11 @@ import {
   EXECUTIVE_ALLOCATION_BLOCKED_MESSAGE,
 } from "@/lib/retail-allocation";
 import {
-  getBranchManagerOfficeNames,
+  getOfficesForBranchManagerPanel,
   getExecutivesForOffice,
   isExecutiveAllocationEditable,
 } from "@/lib/executive-allocation";
 import { getPlanningPeriods } from "@/lib/data";
-import { getDivisionsForUser, getUnionOfficesForUser } from "@/src/data";
 import { AlertCircle } from "lucide-react";
 
 export async function ExecutiveAllocationContent({ plan, user }) {
@@ -27,20 +26,21 @@ export async function ExecutiveAllocationContent({ plan, user }) {
   const canStart = isExecutiveAllocationAllowed(plan.status);
   const isEditable = isExecutiveAllocationEditable(plan.status);
 
-  const divisions = getDivisionsForUser(user);
-  const offices = getUnionOfficesForUser(user, divisions);
-  const allowedNames = getBranchManagerOfficeNames(user);
-
-  const executivesByOffice = {};
-  for (const office of offices) {
-    executivesByOffice[office.name] = getExecutivesForOffice(user, office.name);
-  }
-
   const { data: targets } = await supabase
     .from("targets")
     .select("*")
     .eq("planning_period_id", plan.id)
     .order("brand");
+
+  const targetRows = targets || [];
+  // Demo: full sales-office list (same offices NPM can allocate to)
+  const offices = getOfficesForBranchManagerPanel(user, targetRows);
+  const allowedNames = offices.map((o) => o.name);
+
+  const executivesByOffice = {};
+  for (const office of offices) {
+    executivesByOffice[office.name] = getExecutivesForOffice(user, office.name);
+  }
 
   let existingAllocations = [];
   if (allowedNames.length > 0) {
@@ -65,7 +65,7 @@ export async function ExecutiveAllocationContent({ plan, user }) {
         <>
           <ExecModelAllocationPanel
             plan={plan}
-            targets={targets || []}
+            targets={targetRows}
             existingAllocations={existingAllocations}
             periods={periods}
             offices={offices}
