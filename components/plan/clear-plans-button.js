@@ -11,7 +11,7 @@ export function ClearPlansButton({ className }) {
   async function handleClear() {
     if (
       !window.confirm(
-        "Clear ALL planning periods (May–September etc.), targets, and allocations?\n\nUsers will be kept. You can create a new plan afterward."
+        "Clear ALL planning periods, targets, and allocations for everyone (shared database)?\n\nUsers will be kept. You can create a new plan afterward."
       )
     ) {
       return;
