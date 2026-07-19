@@ -1,6 +1,5 @@
 import { notFound, redirect } from "next/navigation";
 import { Header } from "@/components/layout/header";
-import { DemandSupplyStepper } from "@/components/workflow/demand-supply-stepper";
 import { PlanLifecycleCard } from "@/components/workflow/plan-lifecycle-card";
 import { PlanningStepContent } from "@/components/plan/planning-step-content";
 import { requirePageAccess } from "@/lib/auth";
@@ -8,16 +7,12 @@ import { getPlanningPeriods } from "@/lib/data";
 import { findPlanBySlug, planLabel, normalizeStepKey } from "@/lib/plans";
 import { DEMAND_SUPPLY_WORKFLOW_STEPS } from "@/lib/constants";
 
-const LEGACY_TO_TARGETS = new Set(["plan", "models", "articles", "review"]);
+const LEGACY_TO_TARGETS = new Set(["plan", "models", "articles", "review", "submit"]);
 
 const STEP_META = {
   targets: {
     title: () => "Monthly Planning",
-    description: "Select month and sales group, then enter targets by division and model",
-  },
-  submit: {
-    title: () => "Review & Submit",
-    description: "Review your plan and submit for B2B approval",
+    description: "Enter targets, then save a draft or submit directly for B2B review",
   },
 };
 
@@ -50,7 +45,6 @@ export default async function MonthlyPlanningPlanPage({ params, searchParams }) 
     <>
       <Header title={meta.title(label)} description={meta.description} />
       <PlanLifecycleCard plan={plan} />
-      <DemandSupplyStepper currentStep={step} plan={plan} />
       <PlanningStepContent step={step} plan={plan} periods={periods} user={user} />
     </>
   );

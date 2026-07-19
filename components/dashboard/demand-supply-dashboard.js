@@ -120,7 +120,7 @@ export function DemandSupplyDashboard({ kpis }) {
               </Link>
               {plan.status === "md_approved" && (
                 <Link
-                  href={planStepPath("submit", plan.month, plan.year)}
+                  href={planStepPath("targets", plan.month, plan.year)}
                   className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50"
                 >
                   Finalize Plan

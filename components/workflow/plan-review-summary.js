@@ -80,7 +80,7 @@ export function PlanReviewSummary({ plan, stats }) {
 
           <div className="flex flex-wrap gap-2">
             <Link
-              href={planStepPath("submit", plan.month, plan.year)}
+              href={planStepPath("targets", plan.month, plan.year)}
               className={cn(buttonVariants(), "gap-2")}
             >
               Continue to Submit

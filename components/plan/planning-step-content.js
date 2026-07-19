@@ -2,14 +2,11 @@ import Link from "next/link";
 import { TargetEntryPanel } from "@/components/targets/target-entry-panel";
 import { PlanLockBanner } from "@/components/plan/plan-lock-banner";
 import { EmptyPlansGuide } from "@/components/plan/workflow-guide";
-import { WorkflowActions } from "@/components/workflow-actions";
 import { FinalizePlanAction } from "@/components/workflow/finalize-plan-action";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
 import { isPlanEditable } from "@/lib/workflow";
-import { planLabel, planStepPath } from "@/lib/plans";
-import { getDashboardStats } from "@/lib/data";
+import { planLabel } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 import { Plus } from "lucide-react";
 
@@ -18,12 +15,16 @@ export async function PlanningStepContent({ step, plan, periods, user }) {
     return <EmptyPlansGuide />;
   }
 
-  if (step === "targets" || step === "models" || step === "articles" || step === "plan") {
+  // All D&S work (including submit) happens on the planning grid
+  if (
+    step === "targets" ||
+    step === "models" ||
+    step === "articles" ||
+    step === "plan" ||
+    step === "review" ||
+    step === "submit"
+  ) {
     return <TargetsStep plan={plan} periods={periods} user={user} />;
-  }
-
-  if (step === "review" || step === "submit") {
-    return <SubmitStep plan={plan} user={user} />;
   }
 
   return <EmptyPlansGuide />;
@@ -63,6 +64,15 @@ async function TargetsStep({ plan, periods, user }) {
   return (
     <>
       {!editable && <PlanLockBanner />}
+      {plan.status === "md_approved" && (
+        <div className="mb-4">
+          <FinalizePlanAction
+            periodId={plan.id}
+            planName={planLabel(plan.month, plan.year)}
+            status={plan.status}
+          />
+        </div>
+      )}
       <TargetEntryPanel
         plan={plan}
         targets={targets || []}
@@ -73,66 +83,6 @@ async function TargetsStep({ plan, periods, user }) {
         user={user}
       />
     </>
-  );
-}
-
-async function SubmitStep({ plan, user }) {
-  const stats = await getDashboardStats(plan.id);
-  const hasModelTargets = (stats?.modelTargetCount || 0) > 0;
-  const canSubmit = (stats?.targetCount || 0) > 0 && hasModelTargets;
-
-  return (
-    <div className="space-y-6">
-      <FinalizePlanAction
-        periodId={plan.id}
-        planName={planLabel(plan.month, plan.year)}
-        status={plan.status}
-      />
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{planLabel(plan.month, plan.year)} — Review & Submit</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="rounded-lg bg-slate-50 p-4">
-              <p className="text-xs text-slate-500">Target Lines</p>
-              <p className="text-2xl font-bold">{stats?.targetCount ?? 0}</p>
-            </div>
-            <div className="rounded-lg bg-slate-50 p-4">
-              <p className="text-xs text-slate-500">Model Allocations</p>
-              <p className="text-2xl font-bold">{stats?.modelTargetCount ?? 0}</p>
-            </div>
-            <div className="rounded-lg bg-slate-50 p-4">
-              <p className="text-xs text-slate-500">Article Lines (optional)</p>
-              <p className="text-2xl font-bold">{stats?.articleCount ?? 0}</p>
-            </div>
-          </div>
-
-          {!canSubmit && (
-            <p className="text-sm text-amber-700">
-              Enter and save model-level targets in the planning grid before submitting.
-            </p>
-          )}
-
-          <p className="text-sm text-slate-600">
-            When your plan is complete, submit for B2B review. After B2B approval, the plan is
-            forwarded to the Managing Director for final approval.
-          </p>
-
-          {canSubmit && (
-            <WorkflowActions periodId={plan.id} status={plan.status} role={user.role} />
-          )}
-
-          <Link
-            href={planStepPath("targets", plan.month, plan.year)}
-            className={cn(buttonVariants({ variant: "outline" }))}
-          >
-            Back to Planning Grid
-          </Link>
-        </CardContent>
-      </Card>
-    </div>
   );
 }
 

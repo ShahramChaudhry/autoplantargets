@@ -14,7 +14,7 @@ import {
   rowKey,
 } from "@/src/data";
 import { getArticleCodesForModel } from "@/lib/constants";
-import { planSlug, planStepPath } from "@/lib/plans";
+import { planSlug } from "@/lib/plans";
 import { Save, Send, ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { CreatePlanModal } from "@/components/plan/create-plan-modal";
 
@@ -381,22 +381,44 @@ export function TargetEntryPanel({
       }
       setRecordIds(nextIds);
 
-      setMessage(
-        `Plan saved (${saveData.targetCount || 0} model line${
-          (saveData.targetCount || 0) === 1 ? "" : "s"
-        }).`
-      );
-      router.refresh();
-
       if (goToSubmit) {
-        router.push(planStepPath("submit", plan.month, plan.year));
+        const submitRes = await fetch("/api/workflow", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            periodId: plan.id,
+            action: "submit_b2b",
+            comment: "",
+          }),
+        });
+        const submitData = await submitRes.json();
+        if (!submitRes.ok) {
+          throw new Error(submitData.error || "Plan saved, but submit for B2B review failed.");
+        }
+        setMessage(
+          `Plan saved and submitted for B2B review (${saveData.targetCount || 0} model line${
+            (saveData.targetCount || 0) === 1 ? "" : "s"
+          }).`
+        );
+      } else {
+        setMessage(
+          `Draft saved (${saveData.targetCount || 0} model line${
+            (saveData.targetCount || 0) === 1 ? "" : "s"
+          }).`
+        );
       }
+
+      router.refresh();
     } catch (err) {
       setError(err.message || "Failed to save plan");
     } finally {
       setSaving(false);
     }
   }
+
+  const canSubmitForReview = ["draft", "b2b_changes_requested", "md_changes_requested"].includes(
+    plan.status
+  );
 
   const hasGrid = division && models.length > 0;
 
@@ -474,18 +496,20 @@ export function TargetEntryPanel({
                 className="gap-1.5"
               >
                 <Save className="h-3.5 w-3.5" />
-                {saving ? "Saving..." : "Save"}
+                {saving ? "Saving..." : "Save draft"}
               </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => handleSave(true)}
-                disabled={saving || !hasGrid}
-                className="gap-1.5"
-              >
-                <Send className="h-3.5 w-3.5" />
-                {saving ? "Saving..." : "Save & Submit for Review"}
-              </Button>
+              {canSubmitForReview && (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => handleSave(true)}
+                  disabled={saving || !hasGrid}
+                  className="gap-1.5"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  {saving ? "Submitting..." : "Submit for B2B Review"}
+                </Button>
+              )}
             </>
           )}
         </div>
