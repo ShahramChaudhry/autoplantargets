@@ -1,4 +1,5 @@
 import { DevSwitchUser } from "@/components/layout/dev-switch-user";
+import { ClearPlansButton } from "@/components/plan/clear-plans-button";
 
 export function Header({ title, description }) {
   return (
@@ -7,7 +8,10 @@ export function Header({ title, description }) {
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">{title}</h1>
         {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
       </div>
-      <DevSwitchUser />
+      <div className="flex flex-col items-stretch gap-2 sm:items-end">
+        <DevSwitchUser />
+        <ClearPlansButton />
+      </div>
     </div>
   );
 }

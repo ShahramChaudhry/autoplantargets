@@ -5,12 +5,11 @@ import { SEED_USERS } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/client";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Eraser, UserCog } from "lucide-react";
+import { UserCog } from "lucide-react";
 
 export function DevSwitchUser() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
-  const [clearing, setClearing] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
@@ -48,29 +47,6 @@ export function DevSwitchUser() {
     }
   }
 
-  async function handleClearPlans() {
-    if (
-      !window.confirm(
-        "Clear ALL planning periods, targets, and allocations? Users will be kept."
-      )
-    ) {
-      return;
-    }
-
-    setClearing(true);
-    try {
-      const res = await fetch("/api/dev/reset-plans", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || "Failed to clear plans");
-        return;
-      }
-      window.location.assign("/monthly-planning");
-    } finally {
-      setClearing(false);
-    }
-  }
-
   return (
     <div className="flex flex-col items-end gap-1">
       {currentUser && (
@@ -95,16 +71,6 @@ export function DevSwitchUser() {
         </Select>
         <Button size="sm" variant="outline" onClick={handleSwitch} disabled={loading || !email}>
           {loading ? "Switching..." : "Switch"}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleClearPlans}
-          disabled={clearing}
-          className="gap-1 border-red-200 text-red-700 hover:bg-red-50"
-        >
-          <Eraser className="h-3.5 w-3.5" />
-          {clearing ? "Clearing..." : "Clear plans"}
         </Button>
       </div>
     </div>
