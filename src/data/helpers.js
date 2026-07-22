@@ -35,12 +35,9 @@ export function getSalesGroups(_division) {
   return salesGroups;
 }
 
-/** Primary vehicle sales groups shown first in Target Entry for a simpler UI. */
+/** Primary vehicle sales groups shown in Target Entry / allocation grids. */
 export function getPrimarySalesGroups() {
-  const preferred = ["001", "002", "014", "015", "021", "006"];
-  const byCode = Object.fromEntries(salesGroups.map((g) => [g.code, g]));
-  const primary = preferred.map((code) => byCode[code]).filter(Boolean);
-  return primary.length ? primary : salesGroups.slice(0, 6);
+  return salesGroups;
 }
 
 export function getSalesGroupByCode(code) {

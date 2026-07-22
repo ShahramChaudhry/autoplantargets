@@ -9,7 +9,6 @@ import { Label } from "@/components/ui/label";
 import {
   getDivisionsForUser,
   getPrimarySalesGroups,
-  getSalesGroups,
   getModelsAcrossSalesGroups,
   rowKey,
 } from "@/src/data";
@@ -100,13 +99,9 @@ export function TargetEntryPanel({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [showAllGroups, setShowAllGroups] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
-  const salesGroupColumns = useMemo(
-    () => (showAllGroups ? getSalesGroups() : getPrimarySalesGroups()),
-    [showAllGroups]
-  );
+  const salesGroupColumns = useMemo(() => getPrimarySalesGroups(), []);
   const division = divisions.find((d) => d.id === divisionId) || divisions[0] || null;
   const models = useMemo(
     () => (division ? getModelsAcrossSalesGroups(division, salesGroupColumns) : []),
@@ -473,16 +468,6 @@ export function TargetEntryPanel({
             ))}
           </Select>
         </div>
-
-        {!readOnly && (
-          <button
-            type="button"
-            onClick={() => setShowAllGroups((v) => !v)}
-            className="mb-1.5 text-[11px] text-slate-500 underline-offset-2 hover:underline"
-          >
-            {showAllGroups ? "Show primary sales groups" : "Show all sales groups"}
-          </button>
-        )}
 
         <div className="ml-auto flex items-center gap-2 pb-0.5">
           {editable && !readOnly && (

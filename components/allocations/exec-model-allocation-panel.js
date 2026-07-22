@@ -8,7 +8,6 @@ import { Label } from "@/components/ui/label";
 import { cn, formatPeriod } from "@/lib/utils";
 import {
   getPrimarySalesGroups,
-  getSalesGroups,
   getOfficeLabel,
 } from "@/src/data";
 import {
@@ -37,7 +36,6 @@ export function ExecModelAllocationPanel({
   defaultOfficeName = "",
 }) {
   const router = useRouter();
-  const [showAllGroups, setShowAllGroups] = useState(false);
   const [officeName, setOfficeName] = useState(
     () => defaultOfficeName || offices[0]?.name || ""
   );
@@ -47,10 +45,7 @@ export function ExecModelAllocationPanel({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  const salesGroupColumns = useMemo(
-    () => (showAllGroups ? getSalesGroups() : getPrimarySalesGroups()),
-    [showAllGroups]
-  );
+  const salesGroupColumns = useMemo(() => getPrimarySalesGroups(), []);
   const monthOptions = periods.length > 0 ? periods : [plan];
   const planPath = planSlug(plan.month, plan.year);
   const isLocked = !editable;
@@ -266,16 +261,6 @@ export function ExecModelAllocationPanel({
             </p>
           )}
         </div>
-
-        {!isLocked && (
-          <button
-            type="button"
-            onClick={() => setShowAllGroups((v) => !v)}
-            className="mb-1.5 text-[11px] text-slate-500 underline-offset-2 hover:underline"
-          >
-            {showAllGroups ? "Show primary sales groups" : "Show all sales groups"}
-          </button>
-        )}
 
         {!isLocked && (
           <div className="ml-auto flex flex-wrap gap-2">

@@ -9,7 +9,6 @@ import { Label } from "@/components/ui/label";
 import {
   getDivisionsForUser,
   getPrimarySalesGroups,
-  getSalesGroups,
   getSalesOfficesForUser,
   getOfficeCode,
   getOfficeLabel,
@@ -43,16 +42,12 @@ export function NpmOfficeAllocationPanel({
   const divisions = useMemo(() => getDivisionsForUser(user), [user]);
 
   const [divisionId, setDivisionId] = useState(() => divisions[0]?.id || "");
-  const [showAllGroups, setShowAllGroups] = useState(false);
   const [values, setValues] = useState({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  const salesGroupColumns = useMemo(
-    () => (showAllGroups ? getSalesGroups() : getPrimarySalesGroups()),
-    [showAllGroups]
-  );
+  const salesGroupColumns = useMemo(() => getPrimarySalesGroups(), []);
   const division = divisions.find((d) => d.id === divisionId) || divisions[0] || null;
   const offices = useMemo(
     () => (division ? getSalesOfficesForUser(user, division) : []),
@@ -255,16 +250,6 @@ export function NpmOfficeAllocationPanel({
             ))}
           </Select>
         </div>
-
-        {!isLocked && (
-          <button
-            type="button"
-            onClick={() => setShowAllGroups((v) => !v)}
-            className="mb-1.5 text-[11px] text-slate-500 underline-offset-2 hover:underline"
-          >
-            {showAllGroups ? "Show primary sales groups" : "Show all sales groups"}
-          </button>
-        )}
 
         <div className="ml-auto flex items-center gap-2 pb-0.5">
           {editable && (
